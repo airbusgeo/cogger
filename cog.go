@@ -10,67 +10,67 @@ import (
 	_ "github.com/google/tiff/bigtiff"
 )
 
-type SubfileType uint32
+type subfileType uint32
 
 const (
-	SubfileTypeNone         = 0
-	SubfileTypeReducedImage = 1
-	SubfileTypePage         = 2
-	SubfileTypeMask         = 4
+	subfileTypeNone         = 0
+	subfileTypeReducedImage = 1
+	subfileTypePage         = 2
+	subfileTypeMask         = 4
 )
 
-type PlanarConfiguration uint16
+type planarConfiguration uint16
 
 const (
-	PlanarConfigurationContig   = 1
-	PlanarConfigurationSeparate = 2
+	planarConfigurationContig   = 1
+	planarConfigurationSeparate = 2
 )
 
-type Predictor uint16
+type predictor uint16
 
 const (
-	PredictorNone          = 1
-	PredictorHorizontal    = 2
-	PredictorFloatingPoint = 3
+	predictorNone          = 1
+	predictorHorizontal    = 2
+	predictorFloatingPoint = 3
 )
 
-type SampleFormat uint16
+type sampleFormat uint16
 
 const (
-	SampleFormatUInt          = 1
-	SampleFormatInt           = 2
-	SampleFormatIEEEFP        = 3
-	SampleFormatVoid          = 4
-	SampleFormatComplexInt    = 5
-	SampleFormatComplexIEEEFP = 6
+	sampleFormatUInt          = 1
+	sampleFormatInt           = 2
+	sampleFormatIEEEFP        = 3
+	sampleFormatVoid          = 4
+	sampleFormatComplexInt    = 5
+	sampleFormatComplexIEEEFP = 6
 )
 
-type ExtraSamples uint16
+type extraSamples uint16
 
 const (
-	ExtraSamplesUnspecified = 0
-	ExtraSamplesAssocAlpha  = 1
-	ExtraSamplesUnassAlpha  = 2
+	extraSamplesUnspecified = 0
+	extraSamplesAssocAlpha  = 1
+	extraSamplesUnassAlpha  = 2
 )
 
-type PhotometricInterpretation uint16
+type photometricInterpretation uint16
 
 const (
-	PhotometricInterpretationMinIsWhite = 0
-	PhotometricInterpretationMinIsBlack = 1
-	PhotometricInterpretationRGB        = 2
-	PhotometricInterpretationPalette    = 3
-	PhotometricInterpretationMask       = 4
-	PhotometricInterpretationSeparated  = 5
-	PhotometricInterpretationYCbCr      = 6
-	PhotometricInterpretationCIELab     = 8
-	PhotometricInterpretationICCLab     = 9
-	PhotometricInterpretationITULab     = 10
-	PhotometricInterpretationLOGL       = 32844
-	PhotometricInterpretationLOGLUV     = 32845
+	photometricInterpretationMinIsWhite = 0
+	photometricInterpretationMinIsBlack = 1
+	photometricInterpretationRGB        = 2
+	photometricInterpretationPalette    = 3
+	photometricInterpretationMask       = 4
+	photometricInterpretationSeparated  = 5
+	photometricInterpretationYCbCr      = 6
+	photometricInterpretationCIELab     = 8
+	photometricInterpretationICCLab     = 9
+	photometricInterpretationITULab     = 10
+	photometricInterpretationLOGL       = 32844
+	photometricInterpretationLOGLUV     = 32845
 )
 
-type IFD struct {
+type ifd struct {
 	//Any field added here should also be accounted for in WriteIFD and ifd.Fieldcount
 	SubfileType               uint32   `tiff:"field,tag=254"`
 	ImageWidth                uint64   `tiff:"field,tag=256"`
@@ -106,8 +106,8 @@ type IFD struct {
 	LERCParams             []uint32  `tiff:"field,tag=50674"`
 	RPCs                   []float64 `tiff:"field,tag=50844"`
 
-	overview *IFD
-	masks    []*IFD
+	overview *ifd
+	masks    []*ifd
 
 	ntags            uint64
 	ntilesx, ntilesy uint64
@@ -131,8 +131,8 @@ func (ifd *IFD) StrileSize() uint64 {
 }
 */
 
-func (ifd *IFD) AddOverview(ovr *IFD) {
-	ovr.SubfileType = SubfileTypeReducedImage
+func (ifd *ifd) AddOverview(ovr *ifd) {
+	ovr.SubfileType = subfileTypeReducedImage
 	ovr.ModelPixelScaleTag = nil
 	ovr.ModelTiePointTag = nil
 	ovr.ModelTransformationTag = nil
@@ -141,15 +141,15 @@ func (ifd *IFD) AddOverview(ovr *IFD) {
 	ovr.GeoKeyDirectoryTag = nil
 	ifd.overview = ovr
 }
-func (ifd *IFD) AddMask(msk *IFD) error {
+func (ifd *ifd) AddMask(msk *ifd) error {
 	if len(msk.masks) > 0 || msk.overview != nil {
 		return fmt.Errorf("cannot add mask with overviews or masks")
 	}
 	switch ifd.SubfileType {
-	case SubfileTypeNone:
-		msk.SubfileType = SubfileTypeMask
-	case SubfileTypeReducedImage:
-		msk.SubfileType = SubfileTypeMask | SubfileTypeReducedImage
+	case subfileTypeNone:
+		msk.SubfileType = subfileTypeMask
+	case subfileTypeReducedImage:
+		msk.SubfileType = subfileTypeMask | subfileTypeReducedImage
 	default:
 		return fmt.Errorf("invalid subfiledtype")
 	}
@@ -163,7 +163,7 @@ func (ifd *IFD) AddMask(msk *IFD) error {
 	return nil
 }
 
-func (ifd *IFD) structure(bigtiff bool) (tagCount, ifdSize, strileSize uint64) {
+func (ifd *ifd) structure(bigtiff bool) (tagCount, ifdSize, strileSize uint64) {
 	cnt := uint64(0)
 	size := uint64(16) //8 for field count + 8 for next ifd offset
 	tagSize := uint64(20)
@@ -298,26 +298,26 @@ func (ifd *IFD) structure(bigtiff bool) (tagCount, ifdSize, strileSize uint64) {
 	return cnt, size, strileSize
 }
 
-type TagData struct {
+type tagData struct {
 	bytes.Buffer
 	Offset uint64
 }
 
-func (t *TagData) NextOffset() uint64 {
+func (t *tagData) NextOffset() uint64 {
 	return t.Offset + uint64(t.Buffer.Len())
 }
 
-type COG struct {
+type cog struct {
 	enc     binary.ByteOrder
-	ifd     *IFD
+	ifd     *ifd
 	bigtiff bool
 }
 
-func New() *COG {
-	return &COG{enc: binary.LittleEndian}
+func new() *cog {
+	return &cog{enc: binary.LittleEndian}
 }
 
-func (cog *COG) writeHeader(w io.Writer) error {
+func (cog *cog) writeHeader(w io.Writer) error {
 	if cog.bigtiff {
 		buf := [16]byte{}
 		if cog.enc == binary.LittleEndian {
@@ -346,24 +346,24 @@ func (cog *COG) writeHeader(w io.Writer) error {
 }
 
 const (
-	TByte      = 1
-	TAscii     = 2
-	TShort     = 3
-	TLong      = 4
-	TRational  = 5
-	TSByte     = 6
-	TUndefined = 7
-	TSShort    = 8
-	TSLong     = 9
-	TSRational = 10
-	TFloat     = 11
-	TDouble    = 12
-	TLong8     = 16
-	TSLong8    = 17
-	TIFD8      = 18
+	tByte      = 1
+	tAscii     = 2
+	tShort     = 3
+	tLong      = 4
+	tRational  = 5
+	tSByte     = 6
+	tUndefined = 7
+	tSShort    = 8
+	tSLong     = 9
+	tSRational = 10
+	tFloat     = 11
+	tDouble    = 12
+	tLong8     = 16
+	tSLong8    = 17
+	tIFD8      = 18
 )
 
-func (cog *COG) computeStructure() {
+func (cog *cog) computeStructure() {
 	ifd := cog.ifd
 	for ifd != nil {
 		ifd.ntags, ifd.tagsSize, ifd.strileSize = ifd.structure(cog.bigtiff)
@@ -382,7 +382,7 @@ func (cog *COG) computeStructure() {
 	}
 }
 
-func (cog *COG) computeImageryOffsets() error {
+func (cog *cog) computeImageryOffsets() error {
 	ifd := cog.ifd
 	for ifd != nil {
 		if cog.bigtiff {
@@ -423,7 +423,7 @@ func (cog *COG) computeImageryOffsets() error {
 	}
 
 	datas := cog.dataInterlacing()
-	tiles := datas.Tiles()
+	tiles := datas.tiles()
 	for tile := range tiles {
 		tileidx := tile.x + tile.y*tile.ifd.ntilesx
 		cnt := uint64(tile.ifd.TileByteCounts[tileidx])
@@ -451,7 +451,7 @@ func (cog *COG) computeImageryOffsets() error {
 	return nil
 }
 
-func (cog *COG) Write(out io.Writer) error {
+func (cog *cog) write(out io.Writer) error {
 
 	err := cog.computeImageryOffsets()
 	if err != nil {
@@ -460,7 +460,7 @@ func (cog *COG) Write(out io.Writer) error {
 
 	//compute start of strile data, and offsets to subIFDs
 	//striles are placed after all ifds
-	strileData := &TagData{Offset: 16}
+	strileData := &tagData{Offset: 16}
 	if !cog.bigtiff {
 		strileData.Offset = 8
 	}
@@ -504,7 +504,7 @@ func (cog *COG) Write(out io.Writer) error {
 	}
 
 	datas := cog.dataInterlacing()
-	tiles := datas.Tiles()
+	tiles := datas.tiles()
 	buf := &bytes.Buffer{}
 	for tile := range tiles {
 		buf.Reset()
@@ -525,7 +525,7 @@ func (cog *COG) Write(out io.Writer) error {
 	return err
 }
 
-func (cog *COG) writeIFD(w io.Writer, ifd *IFD, offset uint64, striledata *TagData, next bool) error {
+func (cog *cog) writeIFD(w io.Writer, ifd *ifd, offset uint64, striledata *tagData, next bool) error {
 
 	nextOff := uint64(0)
 	if next {
@@ -534,7 +534,7 @@ func (cog *COG) writeIFD(w io.Writer, ifd *IFD, offset uint64, striledata *TagDa
 	var err error
 	// Make space for "pointer area" containing IFD entry data
 	// longer than 4 bytes.
-	overflow := &TagData{
+	overflow := &tagData{
 		Offset: offset + 8 + 20*ifd.ntags + 8,
 	}
 	if !cog.bigtiff {
@@ -787,33 +787,33 @@ func (cog *COG) writeIFD(w io.Writer, ifd *IFD, offset uint64, striledata *TagDa
 }
 
 type tile struct {
-	ifd  *IFD
+	ifd  *ifd
 	x, y uint64
 }
 
-type datas [][]*IFD
+type datas [][]*ifd
 
-func (cog *COG) dataInterlacing() datas {
+func (cog *cog) dataInterlacing() datas {
 	//count overviews
-	ifd := cog.ifd
+	ifdo := cog.ifd
 	count := 0
-	for ifd != nil {
+	for ifdo != nil {
 		count++
-		ifd = ifd.overview
+		ifdo = ifdo.overview
 	}
-	ret := make([][]*IFD, count)
-	ifd = cog.ifd
+	ret := make([][]*ifd, count)
+	ifdo = cog.ifd
 	for idx := count - 1; idx >= 0; idx-- {
-		ret[idx] = append(ret[idx], ifd)
-		for _, mi := range ifd.masks {
+		ret[idx] = append(ret[idx], ifdo)
+		for _, mi := range ifdo.masks {
 			ret[idx] = append(ret[idx], mi)
 		}
-		ifd = ifd.overview
+		ifdo = ifdo.overview
 	}
 	return ret
 }
 
-func (d datas) Tiles() chan tile {
+func (d datas) tiles() chan tile {
 	ch := make(chan tile)
 	go func() {
 		defer close(ch)

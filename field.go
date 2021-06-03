@@ -122,7 +122,7 @@ func arrayFieldSize(data interface{}, bigtiff bool) uint64 {
 	}
 }
 
-func (cog *COG) writeArray(w io.Writer, tag uint16, data interface{}, tags *TagData) error {
+func (cog *cog) writeArray(w io.Writer, tag uint16, data interface{}, tags *tagData) error {
 	var buf []byte
 	if cog.bigtiff {
 		buf = make([]byte, 20)
@@ -133,7 +133,7 @@ func (cog *COG) writeArray(w io.Writer, tag uint16, data interface{}, tags *TagD
 	switch d := data.(type) {
 	case []byte:
 		n := len(d)
-		cog.enc.PutUint16(buf[2:4], TByte)
+		cog.enc.PutUint16(buf[2:4], tByte)
 		if cog.bigtiff {
 			cog.enc.PutUint64(buf[4:12], uint64(n))
 			if n <= 8 {
@@ -157,7 +157,7 @@ func (cog *COG) writeArray(w io.Writer, tag uint16, data interface{}, tags *TagD
 		}
 	case []uint16:
 		n := len(d)
-		cog.enc.PutUint16(buf[2:4], TShort)
+		cog.enc.PutUint16(buf[2:4], tShort)
 		if cog.bigtiff {
 			cog.enc.PutUint64(buf[4:12], uint64(n))
 			if n <= 4 {
@@ -185,7 +185,7 @@ func (cog *COG) writeArray(w io.Writer, tag uint16, data interface{}, tags *TagD
 		}
 	case []uint32:
 		n := len(d)
-		cog.enc.PutUint16(buf[2:4], TLong)
+		cog.enc.PutUint16(buf[2:4], tLong)
 		if cog.bigtiff {
 			cog.enc.PutUint64(buf[4:12], uint64(n))
 			if n <= 2 {
@@ -213,7 +213,7 @@ func (cog *COG) writeArray(w io.Writer, tag uint16, data interface{}, tags *TagD
 		}
 	case []uint64:
 		n := len(d)
-		cog.enc.PutUint16(buf[2:4], TLong8)
+		cog.enc.PutUint16(buf[2:4], tLong8)
 		if cog.bigtiff {
 			cog.enc.PutUint64(buf[4:12], uint64(n))
 			if n <= 1 {
@@ -233,7 +233,7 @@ func (cog *COG) writeArray(w io.Writer, tag uint16, data interface{}, tags *TagD
 		}
 	case []float32:
 		n := len(d)
-		cog.enc.PutUint16(buf[2:4], TFloat)
+		cog.enc.PutUint16(buf[2:4], tFloat)
 		if cog.bigtiff {
 			cog.enc.PutUint64(buf[4:12], uint64(n))
 			if n <= 2 {
@@ -261,7 +261,7 @@ func (cog *COG) writeArray(w io.Writer, tag uint16, data interface{}, tags *TagD
 		}
 	case []float64:
 		n := len(d)
-		cog.enc.PutUint16(buf[2:4], TDouble)
+		cog.enc.PutUint16(buf[2:4], tDouble)
 		if cog.bigtiff {
 			cog.enc.PutUint64(buf[4:12], uint64(n))
 			if n == 1 {
@@ -283,7 +283,7 @@ func (cog *COG) writeArray(w io.Writer, tag uint16, data interface{}, tags *TagD
 		}
 	case string:
 		n := len(d) + 1
-		cog.enc.PutUint16(buf[2:4], TAscii)
+		cog.enc.PutUint16(buf[2:4], tAscii)
 		if cog.bigtiff {
 			cog.enc.PutUint64(buf[4:12], uint64(n))
 			if n <= 8 {
@@ -319,58 +319,58 @@ func (cog *COG) writeArray(w io.Writer, tag uint16, data interface{}, tags *TagD
 	return err
 }
 
-func (cog *COG) writeField(w io.Writer, tag uint16, data interface{}) error {
+func (cog *cog) writeField(w io.Writer, tag uint16, data interface{}) error {
 	if cog.bigtiff {
 		var buf [20]byte
 		switch d := data.(type) {
 		case byte:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TByte)
+			cog.enc.PutUint16(buf[2:4], tByte)
 			cog.enc.PutUint64(buf[4:12], 1)
 			buf[12] = d
 		case uint16:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TShort)
+			cog.enc.PutUint16(buf[2:4], tShort)
 			cog.enc.PutUint64(buf[4:12], 1)
 			cog.enc.PutUint16(buf[12:], d)
 		case uint32:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TLong)
+			cog.enc.PutUint16(buf[2:4], tLong)
 			cog.enc.PutUint64(buf[4:12], 1)
 			cog.enc.PutUint32(buf[12:], d)
 		case uint64:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TLong8)
+			cog.enc.PutUint16(buf[2:4], tLong8)
 			cog.enc.PutUint64(buf[4:12], 1)
 			cog.enc.PutUint64(buf[12:], d)
 		case float32:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TFloat)
+			cog.enc.PutUint16(buf[2:4], tFloat)
 			cog.enc.PutUint64(buf[4:12], 1)
 			cog.enc.PutUint32(buf[12:], math.Float32bits(d))
 		case float64:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TDouble)
+			cog.enc.PutUint16(buf[2:4], tDouble)
 			cog.enc.PutUint64(buf[4:12], 1)
 			cog.enc.PutUint64(buf[12:], math.Float64bits(d))
 		case int8:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TSByte)
+			cog.enc.PutUint16(buf[2:4], tSByte)
 			cog.enc.PutUint64(buf[4:12], 1)
 			buf[12] = byte(d)
 		case int16:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TSShort)
+			cog.enc.PutUint16(buf[2:4], tSShort)
 			cog.enc.PutUint64(buf[4:12], 1)
 			cog.enc.PutUint16(buf[12:], uint16(d))
 		case int32:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TSLong)
+			cog.enc.PutUint16(buf[2:4], tSLong)
 			cog.enc.PutUint64(buf[4:12], 1)
 			cog.enc.PutUint32(buf[12:], uint32(d))
 		case int64:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TSLong8)
+			cog.enc.PutUint16(buf[2:4], tSLong8)
 			cog.enc.PutUint64(buf[4:12], 1)
 			cog.enc.PutUint64(buf[12:], uint64(d))
 		default:
@@ -383,37 +383,37 @@ func (cog *COG) writeField(w io.Writer, tag uint16, data interface{}) error {
 		switch d := data.(type) {
 		case byte:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TByte)
+			cog.enc.PutUint16(buf[2:4], tByte)
 			cog.enc.PutUint32(buf[4:8], 1)
 			buf[8] = d
 		case uint16:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TShort)
+			cog.enc.PutUint16(buf[2:4], tShort)
 			cog.enc.PutUint32(buf[4:8], 1)
 			cog.enc.PutUint16(buf[8:], d)
 		case uint32:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TLong)
+			cog.enc.PutUint16(buf[2:4], tLong)
 			cog.enc.PutUint32(buf[4:8], 1)
 			cog.enc.PutUint32(buf[8:], d)
 		case float32:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TFloat)
+			cog.enc.PutUint16(buf[2:4], tFloat)
 			cog.enc.PutUint32(buf[4:8], 1)
 			cog.enc.PutUint32(buf[8:], math.Float32bits(d))
 		case int8:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TSByte)
+			cog.enc.PutUint16(buf[2:4], tSByte)
 			cog.enc.PutUint32(buf[4:8], 1)
 			buf[8] = byte(d)
 		case int16:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TSShort)
+			cog.enc.PutUint16(buf[2:4], tSShort)
 			cog.enc.PutUint32(buf[4:8], 1)
 			cog.enc.PutUint16(buf[8:], uint16(d))
 		case int32:
 			cog.enc.PutUint16(buf[0:2], tag)
-			cog.enc.PutUint16(buf[2:4], TSLong)
+			cog.enc.PutUint16(buf[2:4], tSLong)
 			cog.enc.PutUint32(buf[4:8], 1)
 			cog.enc.PutUint32(buf[8:], uint32(d))
 		default:

@@ -8,9 +8,9 @@ import (
 	"github.com/google/tiff"
 )
 
-func LoadMultipleTIFFs(tifs []tiff.TIFF) (*COG, error) {
-	cog := New()
-	ifds := make([]*IFD, 0)
+func loadMultipleTIFFs(tifs []tiff.TIFF) (*cog, error) {
+	cog := new()
+	ifds := make([]*ifd, 0)
 	for it, tif := range tifs {
 		tifds := tif.IFDs()
 		for i := range tifds {
@@ -18,11 +18,11 @@ func LoadMultipleTIFFs(tifs []tiff.TIFF) (*COG, error) {
 			if err != nil {
 				return nil, err
 			}
-			if ifd.SubfileType&SubfileTypeReducedImage == SubfileTypeReducedImage {
+			if ifd.SubfileType&subfileTypeReducedImage == subfileTypeReducedImage {
 				return nil, fmt.Errorf("cannot load multiple tifs if they contain overviews")
 			}
 			if it != 0 {
-				ifd.SubfileType |= SubfileTypeReducedImage
+				ifd.SubfileType |= subfileTypeReducedImage
 			}
 			ifds = append(ifds, ifd)
 		}
@@ -51,10 +51,10 @@ func LoadMultipleTIFFs(tifs []tiff.TIFF) (*COG, error) {
 	}
 	return cog, nil
 }
-func LoadSingleTIFF(tif tiff.TIFF) (*COG, error) {
-	cog := New()
+func loadSingleTIFF(tif tiff.TIFF) (*cog, error) {
+	cog := new()
 	tifds := tif.IFDs()
-	ifds := make([]*IFD, len(tifds))
+	ifds := make([]*ifd, len(tifds))
 	var err error
 	for i := range tifds {
 		ifds[i], err = loadIFD(tif.R(), tifds[i])
@@ -87,8 +87,8 @@ func LoadSingleTIFF(tif tiff.TIFF) (*COG, error) {
 	return cog, nil
 }
 
-func loadIFD(r tiff.BReader, tifd tiff.IFD) (*IFD, error) {
-	ifd := &IFD{r: r}
+func loadIFD(r tiff.BReader, tifd tiff.IFD) (*ifd, error) {
+	ifd := &ifd{r: r}
 	err := tiff.UnmarshalIFD(tifd, ifd)
 	if err != nil {
 		return nil, err
@@ -119,19 +119,19 @@ func Rewrite(out io.Writer, readers ...tiff.ReadAtReadSeeker) error {
 	if err != nil {
 		return fmt.Errorf("consistency check: %w", err)
 	}
-	var cog *COG
+	var cog *cog
 	if len(tiffs) > 1 {
-		cog, err = LoadMultipleTIFFs(tiffs)
+		cog, err = loadMultipleTIFFs(tiffs)
 		if err != nil {
 			return fmt.Errorf("load: %w", err)
 		}
 	} else {
-		cog, err = LoadSingleTIFF(tiffs[0])
+		cog, err = loadSingleTIFF(tiffs[0])
 		if err != nil {
 			return fmt.Errorf("load: %w", err)
 		}
 	}
-	err = cog.Write(out)
+	err = cog.write(out)
 	if err != nil {
 		return fmt.Errorf("mucog write: %w", err)
 	}

@@ -4,7 +4,7 @@
 
 Cogger is a standalone binary and a golang library that reads an internally tiled geotiff (optionally with overviews and masks)
 and rewrites it as a [Cloud Optimized Geotiff (COG)](https://www.cogeo.org). This process being a reshuffling of the original
-geotiff's bytes, it is very efficient and runs as fast as the underlying i/o.
+geotiff's bytes, it should run as fast as the underlying disk or network i/o.
 
 Cogger does not do any pixel manipulation on the provided image, it is up to you to provide an input geotiff which can be suitably
 transformed to a COG, namely:
@@ -60,13 +60,31 @@ streamed to http/cloud storage without having to be stored in an intermediate fi
 
 For an full example of library usage, see the `main.go` file in `cmd/cogger`.
 
+### Advanced
+
+Cogger is able to assemble a single COG from a main tif file and overviews that have been computed
+in distinct files. This may be useful as `gdaladdo` is missing some features to fine tune the options
+of each individual overview.
+
+```bash
+gdal_translate -of GTIFF -co BIGTIFF=YES -co TILED=YES -co COMPRESS=ZSTD -co NUM_THREADS=4 input.file geotif.tif
+# compute first overview
+gdal_translate -of GTIFF -outsize 50% 50% -co BLOCKXSIZE=128 -co TILED=YES -co COMPRESS=ZSTD -co NUM_THREADS=4  geotif.tif ovr.tif.1
+# compute second overview
+gdal_translate -of GTIFF -outsize 50% 50% -co BLOCKXSIZE=256 -co TILED=YES -co COMPRESS=ZSTD -co NUM_THREADS=4  ovr.tif.1 ovr.tif.2
+# compute third overview
+gdal_translate -of GTIFF -outsize 50% 50% -co BLOCKXSIZE=512 -co TILED=YES -co COMPRESS=ZSTD -co NUM_THREADS=4  ovr.tif.2 ovr.tif.3
+# compute COG from geotif.tif and ovr.tif.* overviews
+cogger -output mycog.tif geotif.tif ovr.tif.1 ovr.tif.2 ovr.tif.3
+```
+
 ## Contributing
 
 Contributions are welcome. Please read the [contribution guidelines](CONTRIBUTING.md)
 before submitting fixes or enhancements.
 
 ## Licensing
-cogger is licensed under the Apache License, Version 2.0. See
+Cogger is licensed under the Apache License, Version 2.0. See
 [LICENSE](https://github.com/airbusgeo/cogger/blob/main/LICENSE) for the full
 license text.
 
