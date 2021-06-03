@@ -1,0 +1,24 @@
+# This is an example .goreleaser.yml file with some sane defaults.
+# Make sure to check the documentation at http://goreleaser.com
+before:
+  hooks:
+    # You may remove this if you don't use go modules.
+    - go mod tidy
+archives:
+  - format: zip
+builds:
+  - binary: cogger
+    main: ./cmd/cogger
+    id: macos
+    goos: [darwin]
+    goarch: [amd64, arm64]
+  - binary: cogger
+    main: ./cmd/cogger
+    id: linux
+    goos: [linux]
+    goarch: [amd64, arm64]
+  - binary: cogger
+    main: ./cmd/cogger
+    id: windows
+    goos: [windows]
+    goarch: [amd64]
