@@ -554,24 +554,29 @@ func (cog *cog) write(out io.Writer) error {
 
 	datas := cog.dataInterlacing()
 	tiles := datas.tiles()
-	ghost := make([]byte, 4)
+	ghost := []byte{}
 	for tile := range tiles {
 		idx := (tile.x+tile.y*tile.ifd.ntilesx)*tile.ifd.nplanes + tile.plane
-		if tile.ifd.TileByteCounts[idx] > 0 {
+		bc := tile.ifd.TileByteCounts[idx]
+		if bc > 0 {
 			_, err := tile.ifd.r.Seek(int64(tile.ifd.OriginalTileOffsets[idx]), io.SeekStart)
 			if err != nil {
 				return fmt.Errorf("seek to %d: %w", tile.ifd.OriginalTileOffsets[idx], err)
 			}
-			cog.enc.PutUint32(ghost, tile.ifd.TileByteCounts[idx])
-			out.Write(ghost)
-			_, err = io.CopyN(out, tile.ifd.r, int64(tile.ifd.TileByteCounts[idx])-4)
-			if err != nil {
-				return fmt.Errorf("copy %d from %d: %w",
-					tile.ifd.TileByteCounts[idx], tile.ifd.OriginalTileOffsets[idx], err)
+			if uint32(cap(ghost)) < bc+8 {
+				ghost = make([]byte, (bc+8)*2)
 			}
-			tile.ifd.r.Read(ghost)
-			out.Write(ghost)
-			out.Write(ghost)
+			cog.enc.PutUint32(ghost, bc) //header ghost uint32
+			_, err = tile.ifd.r.Read(ghost[4 : 4+bc])
+			if err != nil {
+				return fmt.Errorf("read %d from %d: %w",
+					bc, tile.ifd.OriginalTileOffsets[idx], err)
+			}
+			copy(ghost[4+bc:8+bc], ghost[bc:4+bc]) //trailer ghost uint32
+			_, err = out.Write(ghost[0 : bc+8])
+			if err != nil {
+				return fmt.Errorf("write %d: %w", bc, err)
+			}
 		}
 	}
 
