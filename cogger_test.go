@@ -24,7 +24,7 @@ func testCase(t *testing.T, filename string) {
 	}
 	defer f.Close()
 
-	_ = f.Seek(0, io.SeekStart)
+	_, _ = f.Seek(0, io.SeekStart)
 
 	buf := bytes.Buffer{}
 
@@ -34,7 +34,7 @@ func testCase(t *testing.T, filename string) {
 
 	coghash := hasher.Sum(nil)
 
-	if !bytes.Equal(coghash, srchash) != 0 {
+	if !bytes.Equal(coghash, srchash) {
 		t.Errorf("mismatch on %s: %x / %x", filename, srchash, coghash)
 	}
 }
