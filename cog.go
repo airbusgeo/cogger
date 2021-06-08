@@ -111,6 +111,7 @@ type ifd struct {
 
 	ntags            uint64
 	ntilesx, ntilesy uint64
+	nplanes          uint64 //1 if PlanarConfiguration==1, SamplesPerPixel if PlanarConfiguration==2
 	tagsSize         uint64
 	strileSize       uint64
 	r                tiff.BReader
@@ -163,10 +164,11 @@ func (ifd *ifd) AddMask(msk *ifd) error {
 	return nil
 }
 
-func (ifd *ifd) structure(bigtiff bool) (tagCount, ifdSize, strileSize uint64) {
+func (ifd *ifd) structure(bigtiff bool) (tagCount, ifdSize, strileSize, planeCount uint64) {
 	cnt := uint64(0)
 	size := uint64(16) //8 for field count + 8 for next ifd offset
 	tagSize := uint64(20)
+	planeCount = 1
 	if !bigtiff {
 		size = 6 // 2 for field count + 4 for next ifd offset
 		tagSize = 12
@@ -208,6 +210,9 @@ func (ifd *ifd) structure(bigtiff bool) (tagCount, ifdSize, strileSize uint64) {
 	if ifd.PlanarConfiguration > 0 {
 		cnt++
 		size += tagSize
+	}
+	if ifd.PlanarConfiguration == 2 {
+		planeCount = uint64(ifd.SamplesPerPixel)
 	}
 	if len(ifd.DateTime) > 0 {
 		cnt++
@@ -295,7 +300,7 @@ func (ifd *ifd) structure(bigtiff bool) (tagCount, ifdSize, strileSize uint64) {
 		cnt++
 		size += arrayFieldSize(ifd.RPCs, bigtiff)
 	}
-	return cnt, size, strileSize
+	return cnt, size, strileSize, planeCount
 }
 
 type tagData struct {
@@ -366,13 +371,14 @@ const (
 func (cog *cog) computeStructure() {
 	ifd := cog.ifd
 	for ifd != nil {
-		ifd.ntags, ifd.tagsSize, ifd.strileSize = ifd.structure(cog.bigtiff)
+		ifd.ntags, ifd.tagsSize, ifd.strileSize, ifd.nplanes = ifd.structure(cog.bigtiff)
 		//ifd.ntilesx = uint64(math.Ceil(float64(ifd.ImageWidth) / float64(ifd.TileWidth)))
 		//ifd.ntilesy = uint64(math.Ceil(float64(ifd.ImageLength) / float64(ifd.TileLength)))
 		ifd.ntilesx = (ifd.ImageWidth + uint64(ifd.TileWidth) - 1) / uint64(ifd.TileWidth)
 		ifd.ntilesy = (ifd.ImageLength + uint64(ifd.TileLength) - 1) / uint64(ifd.TileLength)
+
 		for _, mifd := range ifd.masks {
-			mifd.ntags, mifd.tagsSize, mifd.strileSize = mifd.structure(cog.bigtiff)
+			mifd.ntags, mifd.tagsSize, mifd.strileSize, mifd.nplanes = mifd.structure(cog.bigtiff)
 			//	mifd.ntilesx = uint64(math.Ceil(float64(mifd.ImageWidth) / float64(mifd.TileWidth)))
 			//	mifd.ntilesy = uint64(math.Ceil(float64(mifd.ImageLength) / float64(mifd.TileLength)))
 			mifd.ntilesx = (mifd.ImageWidth + uint64(mifd.TileWidth) - 1) / uint64(mifd.TileWidth)
@@ -425,7 +431,7 @@ func (cog *cog) computeImageryOffsets() error {
 	datas := cog.dataInterlacing()
 	tiles := datas.tiles()
 	for tile := range tiles {
-		tileidx := tile.x + tile.y*tile.ifd.ntilesx
+		tileidx := (tile.x+tile.y*tile.ifd.ntilesx)*tile.ifd.nplanes + tile.plane
 		cnt := uint64(tile.ifd.TileByteCounts[tileidx])
 		if cnt > 0 {
 			if cog.bigtiff {
@@ -508,7 +514,7 @@ func (cog *cog) write(out io.Writer) error {
 	buf := &bytes.Buffer{}
 	for tile := range tiles {
 		buf.Reset()
-		idx := tile.x + tile.y*tile.ifd.ntilesx
+		idx := (tile.x+tile.y*tile.ifd.ntilesx)*tile.ifd.nplanes + tile.plane
 		if tile.ifd.TileByteCounts[idx] > 0 {
 			_, err := tile.ifd.r.Seek(int64(tile.ifd.OriginalTileOffsets[idx]), io.SeekStart)
 			if err != nil {
@@ -787,8 +793,9 @@ func (cog *cog) writeIFD(w io.Writer, ifd *ifd, offset uint64, striledata *tagDa
 }
 
 type tile struct {
-	ifd  *ifd
-	x, y uint64
+	ifd   *ifd
+	x, y  uint64
+	plane uint64
 }
 
 type datas [][]*ifd
@@ -822,10 +829,13 @@ func (d datas) tiles() chan tile {
 			for y := uint64(0); y < ovr[0].ntilesy; y++ {
 				for x := uint64(0); x < ovr[0].ntilesx; x++ {
 					for _, ifd := range ovr {
-						ch <- tile{
-							ifd: ifd,
-							x:   x,
-							y:   y,
+						for p := uint64(0); p < ifd.nplanes; p++ {
+							ch <- tile{
+								ifd:   ifd,
+								plane: p,
+								x:     x,
+								y:     y,
+							}
 						}
 					}
 				}

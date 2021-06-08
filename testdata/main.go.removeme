@@ -1,0 +1,305 @@
+package main
+
+import "github.com/airbusgeo/godal"
+
+func main() {
+	godal.RegisterAll()
+	createband4()
+	createband4mask()
+	creatergb()
+	creatergbmask()
+	create1band()
+	create1bandmask()
+}
+
+func creatergb() {
+	ds, err := godal.Create(godal.GTiff, "rgb.tif", 3, godal.Byte, 256, 256,
+		godal.CreationOption("TILED=YES", "BLOCKXSIZE=128", "BLOCKYSIZE=128", "COMPRESS=LZW"))
+	if err != nil {
+		panic(err)
+	}
+	buf := make([]byte, 128*128)
+	bnds := ds.Bands()
+	for b := 0; b < 3; b++ {
+		for tx := 0; tx < 2; tx++ {
+			for ty := 0; ty < 2; ty++ {
+				v := byte(b*10 + ty*2 + tx)
+				for i := range buf {
+					buf[i] = v
+				}
+				bnds[b].Write(tx*128, ty*128, buf, 128, 128)
+			}
+		}
+	}
+	err = ds.BuildOverviews(godal.Levels(2))
+	if err != nil {
+		panic(err)
+	}
+	err = ds.Close()
+	if err != nil {
+		panic(err)
+	}
+
+	ds, err = godal.Open("rgb.tif", godal.Update())
+
+	bnds = ds.Bands()
+	for b := 0; b < 3; b++ {
+		for tx := 0; tx < 2; tx++ {
+			for ty := 0; ty < 2; ty++ {
+				v := byte(b*10+ty*2+tx) * 2
+				for i := range buf {
+					buf[i] = v * byte(i%4)
+				}
+				bnds[b].Write(tx*128, ty*128, buf, 128, 128)
+			}
+		}
+	}
+	err = ds.Close()
+	if err != nil {
+		panic(err)
+	}
+}
+func creatergbmask() {
+	ds, err := godal.Create(godal.GTiff, "rgbmask.tif", 3, godal.Byte, 256, 256,
+		godal.CreationOption("TILED=YES", "BLOCKXSIZE=128", "BLOCKYSIZE=128", "COMPRESS=LZW"))
+	if err != nil {
+		panic(err)
+	}
+	buf := make([]byte, 128*128)
+	bnds := ds.Bands()
+	for b := 0; b < 3; b++ {
+		for tx := 0; tx < 2; tx++ {
+			for ty := 0; ty < 2; ty++ {
+				v := byte(b*10 + ty*2 + tx)
+				for i := range buf {
+					buf[i] = v
+				}
+				bnds[b].Write(tx*128, ty*128, buf, 128, 128)
+			}
+		}
+	}
+	msk, err := ds.CreateMaskBand(0x02, godal.ConfigOption("GDAL_TIFF_INTERNAL_MASK=YES"))
+	if err != nil {
+		panic(err)
+	}
+	msk.Fill(255, 0)
+	err = ds.BuildOverviews(godal.Levels(2))
+	if err != nil {
+		panic(err)
+	}
+	err = ds.Close()
+	if err != nil {
+		panic(err)
+	}
+
+	ds, err = godal.Open("rgbmask.tif", godal.Update())
+
+	bnds = ds.Bands()
+	for b := 0; b < 3; b++ {
+		for tx := 0; tx < 2; tx++ {
+			for ty := 0; ty < 2; ty++ {
+				v := byte(b*10+ty*2+tx) * 2
+				for i := range buf {
+					buf[i] = v * byte(i%4)
+				}
+				bnds[b].Write(tx*128, ty*128, buf, 128, 128)
+			}
+		}
+	}
+	err = ds.Close()
+	if err != nil {
+		panic(err)
+	}
+}
+func create1bandmask() {
+	ds, err := godal.Create(godal.GTiff, "graymask.tif", 1, godal.Byte, 256, 256,
+		godal.CreationOption("TILED=YES", "BLOCKXSIZE=128", "BLOCKYSIZE=128", "COMPRESS=LZW"))
+	if err != nil {
+		panic(err)
+	}
+	buf := make([]byte, 128*128)
+	bnds := ds.Bands()
+	for tx := 0; tx < 2; tx++ {
+		for ty := 0; ty < 2; ty++ {
+			v := byte(ty*2 + tx)
+			for i := range buf {
+				buf[i] = v
+			}
+			bnds[0].Write(tx*128, ty*128, buf, 128, 128)
+		}
+	}
+	msk, err := ds.CreateMaskBand(0x02, godal.ConfigOption("GDAL_TIFF_INTERNAL_MASK=YES"))
+	if err != nil {
+		panic(err)
+	}
+	msk.Fill(255, 0)
+	err = ds.BuildOverviews(godal.Levels(2))
+	if err != nil {
+		panic(err)
+	}
+	err = ds.Close()
+	if err != nil {
+		panic(err)
+	}
+
+	ds, err = godal.Open("graymask.tif", godal.Update())
+
+	bnds = ds.Bands()
+	for tx := 0; tx < 2; tx++ {
+		for ty := 0; ty < 2; ty++ {
+			v := byte(ty*2+tx) * 2
+			for i := range buf {
+				buf[i] = v * byte(i%4)
+			}
+			bnds[0].Write(tx*128, ty*128, buf, 128, 128)
+		}
+	}
+	err = ds.Close()
+	if err != nil {
+		panic(err)
+	}
+}
+func create1band() {
+	ds, err := godal.Create(godal.GTiff, "gray.tif", 1, godal.Byte, 256, 256,
+		godal.CreationOption("TILED=YES", "BLOCKXSIZE=128", "BLOCKYSIZE=128", "COMPRESS=LZW"))
+	if err != nil {
+		panic(err)
+	}
+	buf := make([]byte, 128*128)
+	bnds := ds.Bands()
+	for tx := 0; tx < 2; tx++ {
+		for ty := 0; ty < 2; ty++ {
+			v := byte(ty*2 + tx)
+			for i := range buf {
+				buf[i] = v
+			}
+			bnds[0].Write(tx*128, ty*128, buf, 128, 128)
+		}
+	}
+	err = ds.BuildOverviews(godal.Levels(2))
+	if err != nil {
+		panic(err)
+	}
+	err = ds.Close()
+	if err != nil {
+		panic(err)
+	}
+
+	ds, err = godal.Open("gray.tif", godal.Update())
+
+	bnds = ds.Bands()
+	for tx := 0; tx < 2; tx++ {
+		for ty := 0; ty < 2; ty++ {
+			v := byte(ty*2+tx) * 2
+			for i := range buf {
+				buf[i] = v * byte(i%4)
+			}
+			bnds[0].Write(tx*128, ty*128, buf, 128, 128)
+		}
+	}
+	err = ds.Close()
+	if err != nil {
+		panic(err)
+	}
+}
+func createband4() {
+	ds, err := godal.Create(godal.GTiff, "band4.tif", 4, godal.Byte, 256, 256,
+		godal.CreationOption("INTERLEAVE=BAND", "TILED=YES", "BLOCKXSIZE=128", "BLOCKYSIZE=128", "COMPRESS=LZW"))
+	if err != nil {
+		panic(err)
+	}
+	buf := make([]byte, 128*128)
+	bnds := ds.Bands()
+	for b := 0; b < 4; b++ {
+		for tx := 0; tx < 2; tx++ {
+			for ty := 0; ty < 2; ty++ {
+				v := byte(b*10 + ty*2 + tx)
+				for i := range buf {
+					buf[i] = v
+				}
+				bnds[b].Write(tx*128, ty*128, buf, 128, 128)
+			}
+		}
+	}
+	err = ds.BuildOverviews(godal.Levels(2))
+	if err != nil {
+		panic(err)
+	}
+	err = ds.Close()
+	if err != nil {
+		panic(err)
+	}
+
+	ds, err = godal.Open("band4.tif", godal.Update())
+
+	bnds = ds.Bands()
+	for b := 0; b < 4; b++ {
+		for tx := 0; tx < 2; tx++ {
+			for ty := 0; ty < 2; ty++ {
+				v := byte(b*10+ty*2+tx) * 2
+				for i := range buf {
+					buf[i] = v * byte(i%4)
+				}
+				bnds[b].Write(tx*128, ty*128, buf, 128, 128)
+			}
+		}
+	}
+	err = ds.Close()
+	if err != nil {
+		panic(err)
+	}
+}
+
+func createband4mask() {
+	ds, err := godal.Create(godal.GTiff, "band4mask.tif", 4, godal.Byte, 256, 256,
+		godal.CreationOption("INTERLEAVE=BAND", "TILED=YES", "BLOCKXSIZE=128", "BLOCKYSIZE=128", "COMPRESS=LZW"))
+	if err != nil {
+		panic(err)
+	}
+	buf := make([]byte, 128*128)
+	bnds := ds.Bands()
+	for b := 0; b < 4; b++ {
+		for tx := 0; tx < 2; tx++ {
+			for ty := 0; ty < 2; ty++ {
+				v := byte(b*10 + ty*2 + tx)
+				for i := range buf {
+					buf[i] = v
+				}
+				bnds[b].Write(tx*128, ty*128, buf, 128, 128)
+			}
+		}
+	}
+
+	msk, err := ds.CreateMaskBand(0x02, godal.ConfigOption("GDAL_TIFF_INTERNAL_MASK=YES"))
+	if err != nil {
+		panic(err)
+	}
+	msk.Fill(255, 0)
+	err = ds.BuildOverviews(godal.Levels(2))
+	if err != nil {
+		panic(err)
+	}
+	err = ds.Close()
+	if err != nil {
+		panic(err)
+	}
+
+	ds, err = godal.Open("band4mask.tif", godal.Update())
+
+	bnds = ds.Bands()
+	for b := 0; b < 4; b++ {
+		for tx := 0; tx < 2; tx++ {
+			for ty := 0; ty < 2; ty++ {
+				v := byte(b*10+ty*2+tx) * 2
+				for i := range buf {
+					buf[i] = v * byte(i%4)
+				}
+				bnds[b].Write(tx*128, ty*128, buf, 128, 128)
+			}
+		}
+	}
+	err = ds.Close()
+	if err != nil {
+		panic(err)
+	}
+}
