@@ -15,7 +15,7 @@ func testCase(t *testing.T, filename string) {
 		t.Fatal(err)
 	}
 	hasher := md5.New()
-	io.Copy(hasher, f)
+	_, _ = io.Copy(hasher, f)
 	srchash := hasher.Sum(nil)
 	f.Close()
 	f, err = os.Open("testdata/" + filename)
@@ -24,17 +24,17 @@ func testCase(t *testing.T, filename string) {
 	}
 	defer f.Close()
 
-	f.Seek(0, io.SeekStart)
+	_ = f.Seek(0, io.SeekStart)
 
 	buf := bytes.Buffer{}
 
 	hasher.Reset()
-	Rewrite(&buf, f)
-	io.Copy(hasher, &buf)
+	_ = Rewrite(&buf, f)
+	_, _ = io.Copy(hasher, &buf)
 
 	coghash := hasher.Sum(nil)
 
-	if bytes.Compare(coghash, srchash) != 0 {
+	if !bytes.Equal(coghash, srchash) != 0 {
 		t.Errorf("mismatch on %s: %x / %x", filename, srchash, coghash)
 	}
 }
