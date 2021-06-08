@@ -323,6 +323,11 @@ func new() *cog {
 }
 
 func (cog *cog) writeHeader(w io.Writer) error {
+	glen := uint64(len(ghost))
+	if len(cog.ifd.masks) > 0 {
+		glen = uint64(len(ghostmask))
+	}
+	var err error
 	if cog.bigtiff {
 		buf := [16]byte{}
 		if cog.enc == binary.LittleEndian {
@@ -333,9 +338,8 @@ func (cog *cog) writeHeader(w io.Writer) error {
 		cog.enc.PutUint16(buf[2:], 43)
 		cog.enc.PutUint16(buf[4:], 8)
 		cog.enc.PutUint16(buf[6:], 0)
-		cog.enc.PutUint64(buf[8:], 16)
-		_, err := w.Write(buf[:])
-		return err
+		cog.enc.PutUint64(buf[8:], 16+glen)
+		_, err = w.Write(buf[:])
 	} else {
 		buf := [8]byte{}
 		if cog.enc == binary.LittleEndian {
@@ -344,10 +348,18 @@ func (cog *cog) writeHeader(w io.Writer) error {
 			copy(buf[0:], []byte("MM"))
 		}
 		cog.enc.PutUint16(buf[2:], 42)
-		cog.enc.PutUint32(buf[4:], 8)
-		_, err := w.Write(buf[:])
+		cog.enc.PutUint32(buf[4:], 8+uint32(glen))
+		_, err = w.Write(buf[:])
+	}
+	if err != nil {
 		return err
 	}
+	if len(cog.ifd.masks) > 0 {
+		_, err = w.Write([]byte(ghostmask))
+	} else {
+		_, err = w.Write([]byte(ghost))
+	}
+	return err
 }
 
 const (
@@ -388,6 +400,23 @@ func (cog *cog) computeStructure() {
 	}
 }
 
+const ghost = `GDAL_STRUCTURAL_METADATA_SIZE=000140 bytes
+LAYOUT=IFDS_BEFORE_DATA
+BLOCK_ORDER=ROW_MAJOR
+BLOCK_LEADER=SIZE_AS_UINT4
+BLOCK_TRAILER=LAST_4_BYTES_REPEATED
+KNOWN_INCOMPATIBLE_EDITION=NO
+`
+
+const ghostmask = `GDAL_STRUCTURAL_METADATA_SIZE=000174 bytes
+LAYOUT=IFDS_BEFORE_DATA
+BLOCK_ORDER=ROW_MAJOR
+BLOCK_LEADER=SIZE_AS_UINT4
+BLOCK_TRAILER=LAST_4_BYTES_REPEATED
+KNOWN_INCOMPATIBLE_EDITION=NO
+ MASK_INTERLEAVED_WITH_IMAGERY=YES
+`
+
 func (cog *cog) computeImageryOffsets() error {
 	ifd := cog.ifd
 	for ifd != nil {
@@ -418,6 +447,11 @@ func (cog *cog) computeImageryOffsets() error {
 	if !cog.bigtiff {
 		dataOffset = 8
 	}
+	if len(cog.ifd.masks) > 0 {
+		dataOffset += uint64(len(ghostmask)) + 4
+	} else {
+		dataOffset += uint64(len(ghost)) + 4
+	}
 
 	ifd = cog.ifd
 	for ifd != nil {
@@ -444,7 +478,7 @@ func (cog *cog) computeImageryOffsets() error {
 				}
 				tile.ifd.NewTileOffsets32[tileidx] = uint32(dataOffset)
 			}
-			dataOffset += uint64(tile.ifd.TileByteCounts[tileidx])
+			dataOffset += uint64(tile.ifd.TileByteCounts[tileidx]) + 8
 		} else {
 			if cog.bigtiff {
 				tile.ifd.NewTileOffsets64[tileidx] = 0
@@ -470,6 +504,11 @@ func (cog *cog) write(out io.Writer) error {
 	if !cog.bigtiff {
 		strileData.Offset = 8
 	}
+	if len(cog.ifd.masks) > 0 {
+		strileData.Offset += uint64(len(ghostmask))
+	} else {
+		strileData.Offset += uint64(len(ghost))
+	}
 
 	ifd := cog.ifd
 	for ifd != nil {
@@ -480,12 +519,16 @@ func (cog *cog) write(out io.Writer) error {
 		ifd = ifd.overview
 	}
 
+	glen := uint64(len(ghost))
+	if len(cog.ifd.masks) > 0 {
+		glen = uint64(len(ghostmask))
+	}
 	cog.writeHeader(out)
 
 	ifd = cog.ifd
-	off := uint64(16)
+	off := uint64(16 + glen)
 	if !cog.bigtiff {
-		off = 8
+		off = 8 + glen
 	}
 	for ifd != nil {
 		nmasks := len(ifd.masks)
@@ -511,20 +554,24 @@ func (cog *cog) write(out io.Writer) error {
 
 	datas := cog.dataInterlacing()
 	tiles := datas.tiles()
-	buf := &bytes.Buffer{}
+	ghost := make([]byte, 4)
 	for tile := range tiles {
-		buf.Reset()
 		idx := (tile.x+tile.y*tile.ifd.ntilesx)*tile.ifd.nplanes + tile.plane
 		if tile.ifd.TileByteCounts[idx] > 0 {
 			_, err := tile.ifd.r.Seek(int64(tile.ifd.OriginalTileOffsets[idx]), io.SeekStart)
 			if err != nil {
 				return fmt.Errorf("seek to %d: %w", tile.ifd.OriginalTileOffsets[idx], err)
 			}
-			_, err = io.CopyN(out, tile.ifd.r, int64(tile.ifd.TileByteCounts[idx]))
+			cog.enc.PutUint32(ghost, tile.ifd.TileByteCounts[idx])
+			out.Write(ghost)
+			_, err = io.CopyN(out, tile.ifd.r, int64(tile.ifd.TileByteCounts[idx])-4)
 			if err != nil {
 				return fmt.Errorf("copy %d from %d: %w",
 					tile.ifd.TileByteCounts[idx], tile.ifd.OriginalTileOffsets[idx], err)
 			}
+			tile.ifd.r.Read(ghost)
+			out.Write(ghost)
+			out.Write(ghost)
 		}
 	}
 
