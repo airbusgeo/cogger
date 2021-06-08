@@ -103,6 +103,8 @@ func loadIFD(r tiff.BReader, tifd tiff.IFD) (*ifd, error) {
 	return ifd, nil
 }
 
+// Rewrite reshuffles the tiff bytes provided as readers into a COG output
+// to out
 func Rewrite(out io.Writer, readers ...tiff.ReadAtReadSeeker) error {
 	tiffs := []tiff.TIFF{}
 	if len(readers) == 0 {
