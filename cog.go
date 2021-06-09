@@ -406,7 +406,7 @@ BLOCK_ORDER=ROW_MAJOR
 BLOCK_LEADER=SIZE_AS_UINT4
 BLOCK_TRAILER=LAST_4_BYTES_REPEATED
 KNOWN_INCOMPATIBLE_EDITION=NO
-`
+  ` //2 spaces: 1 for the gdal spec, and one to ensure the actual start offset is on a word boundary
 
 const ghostmask = `GDAL_STRUCTURAL_METADATA_SIZE=000174 bytes
 LAYOUT=IFDS_BEFORE_DATA
@@ -554,7 +554,7 @@ func (cog *cog) write(out io.Writer) error {
 
 	datas := cog.dataInterlacing()
 	tiles := datas.tiles()
-	ghost := []byte{}
+	data := []byte{}
 	for tile := range tiles {
 		idx := (tile.x+tile.y*tile.ifd.ntilesx)*tile.ifd.nplanes + tile.plane
 		bc := tile.ifd.TileByteCounts[idx]
@@ -563,17 +563,17 @@ func (cog *cog) write(out io.Writer) error {
 			if err != nil {
 				return fmt.Errorf("seek to %d: %w", tile.ifd.OriginalTileOffsets[idx], err)
 			}
-			if uint32(cap(ghost)) < bc+8 {
-				ghost = make([]byte, (bc+8)*2)
+			if uint32(len(data)) < bc+8 {
+				data = make([]byte, (bc+8)*2)
 			}
-			cog.enc.PutUint32(ghost, bc) //header ghost uint32
-			_, err = tile.ifd.r.Read(ghost[4 : 4+bc])
+			binary.LittleEndian.PutUint32(data, bc) //header ghost: tile size
+			_, err = tile.ifd.r.Read(data[4 : 4+bc])
 			if err != nil {
 				return fmt.Errorf("read %d from %d: %w",
 					bc, tile.ifd.OriginalTileOffsets[idx], err)
 			}
-			copy(ghost[4+bc:8+bc], ghost[bc:4+bc]) //trailer ghost uint32
-			_, err = out.Write(ghost[0 : bc+8])
+			copy(data[4+bc:8+bc], data[bc:4+bc]) //trailer ghost: repeat last 4 bytes
+			_, err = out.Write(data[0 : bc+8])
 			if err != nil {
 				return fmt.Errorf("write %d: %w", bc, err)
 			}
@@ -864,9 +864,7 @@ func (cog *cog) dataInterlacing() datas {
 	ifdo = cog.ifd
 	for idx := count - 1; idx >= 0; idx-- {
 		ret[idx] = append(ret[idx], ifdo)
-		for _, mi := range ifdo.masks {
-			ret[idx] = append(ret[idx], mi)
-		}
+		ret[idx] = append(ret[idx], ifdo.masks...)
 		ifdo = ifdo.overview
 	}
 	return ret
