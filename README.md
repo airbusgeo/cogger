@@ -35,10 +35,20 @@ go install github.com/airbusgeo/cogger/cmd/cogger@latest
 
 ### Binary
 
+#### With internal overviews
+
 ```bash
 gdal_translate -of GTIFF -co BIGTIFF=YES -co TILED=YES -co COMPRESS=ZSTD -co NUM_THREADS=4 input.file geotif.tif
-gdaladdo --config GDAL_NUM_THREADS 4 geotif.tif 2 4 8 16 32
+gdaladdo --config GDAL_NUM_THREADS 4 --config COMPRESS_OVERVIEW ZSTD geotif.tif 2 4 8 16 32
 cogger -output mycog.tif geotif.tif
+```
+
+#### With external overviews
+
+```bash
+gdal_translate -of GTIFF -co BIGTIFF=YES -co TILED=YES -co COMPRESS=ZSTD -co NUM_THREADS=4 input.file geotif.tif
+gdaladdo -ro --config GDAL_NUM_THREADS 4 --config COMPRESS_OVERVIEW ZSTD geotif.tif 2 4 8 16 32 #creates geotif.tif.ovr
+cogger -output mycog.tif geotif.tif geotif.tif.ovr
 ```
 
 ### Library
