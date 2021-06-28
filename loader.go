@@ -107,7 +107,10 @@ func Rewrite(out io.Writer, readers ...tiff.ReadAtReadSeeker) error {
 	l := curOvr.ImageLength
 	for _, ci := range ifds[1:] {
 		if ci.ImageLength == l {
-			curOvr.AddMask(ci)
+			err = curOvr.AddMask(ci)
+			if err != nil {
+				return err
+			}
 		} else {
 			curOvr.AddOverview(ci)
 			curOvr = ci
