@@ -224,7 +224,7 @@ func (ifd *ifd) structure(bigtiff bool) (tagCount, ifdSize, strileSize, planeCou
 	}
 	if len(ifd.Colormap) > 0 {
 		cnt++
-		size += arrayFieldSize(ifd.BitsPerSample, bigtiff)
+		size += arrayFieldSize(ifd.Colormap, bigtiff)
 	}
 	if ifd.TileWidth > 0 {
 		cnt++
