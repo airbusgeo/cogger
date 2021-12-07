@@ -679,10 +679,9 @@ func (cfg Config) RewriteIFDTree(ifd *IFD, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("write overview ifd %d: %w", i, err)
 		}
-		off += ifd.tagSize
+		off += oifd.tagSize
 		if oifd.mask != nil {
-			err := cog.writeIFD(out, oifd.mask, off, strileData,
-				i != len(ifd.overviews)-1)
+			err := cog.writeIFD(out, oifd.mask, off, strileData, i != len(ifd.overviews)-1)
 			if err != nil {
 				return fmt.Errorf("write ifd: %w", err)
 			}
