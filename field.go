@@ -7,24 +7,6 @@ import (
 	"math"
 )
 
-const (
-	tByte      = 1
-	tAscii     = 2
-	tShort     = 3
-	tLong      = 4
-	tRational  = 5
-	tSByte     = 6
-	tUndefined = 7
-	tSShort    = 8
-	tSLong     = 9
-	tSRational = 10
-	tFloat     = 11
-	tDouble    = 12
-	tLong8     = 16
-	tSLong8    = 17
-	tIFD8      = 18
-)
-
 func arrayFieldSize32(data interface{}, bigtiff bool) int {
 	ll := 0
 	switch d := data.(type) {

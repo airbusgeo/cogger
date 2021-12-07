@@ -16,6 +16,24 @@ const (
 	subfileTypeMask         = 4
 )
 
+const (
+	tByte      = 1
+	tAscii     = 2
+	tShort     = 3
+	tLong      = 4
+	tRational  = 5
+	tSByte     = 6
+	tUndefined = 7
+	tSShort    = 8
+	tSLong     = 9
+	tSRational = 10
+	tFloat     = 11
+	tDouble    = 12
+	tLong8     = 16
+	tSLong8    = 17
+	tIFD8      = 18
+)
+
 // PlanarInterleaving describes how the band data should be interleaved for tiffs
 // with more than 1 plane and with PlanarConfiguration=2
 //
