@@ -380,10 +380,18 @@ func (t *tagData) NextOffset() int {
 }
 
 type Config struct {
-	Encoding           binary.ByteOrder
-	BigTIFF            bool
+	//Encoding selects big or little endian tiff encoding. Default: little
+	Encoding binary.ByteOrder
+
+	//BigTIFF forces bigtiff creation. Default: false, i.e. only if needed
+	BigTIFF bool
+
+	// PlanarInterleaving for separate-plane files.
+	// Default: nil resulting in {{0,1,...n}} i.e. interleaved planes
 	PlanarInterleaving PlanarInterleaving
-	WithGDALGhostArea  bool
+
+	//WithGDALGhostArea inserts gdal specific read optimizations
+	WithGDALGhostArea bool
 }
 
 func DefaultConfig() Config {
@@ -399,9 +407,6 @@ type cog struct {
 	ifd           *IFD
 	bigtiff       bool
 	withGDALGhost bool
-	//eg: default {{0,1,2}} => all three bands together
-	// {{0},{1},{2}} => each band one after another
-	// {{0,1},{2}} => r,g interleaved, b comes after
 }
 
 func (cog *cog) writeHeader(w io.Writer) error {
