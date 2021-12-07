@@ -12,8 +12,8 @@ import (
 const (
 	subfileTypeNone         = 0
 	subfileTypeReducedImage = 1
-	subfileTypePage         = 2
-	subfileTypeMask         = 4
+	//subfileTypePage         = 2
+	subfileTypeMask = 4
 )
 
 // PlanarInterleaving describes how the band data should be interleaved for tiffs
@@ -237,21 +237,21 @@ func (ifd *IFD) AddMask(msk *IFD) error {
 }
 
 const (
-	tByte      = 1
-	tAscii     = 2
-	tShort     = 3
-	tLong      = 4
-	tRational  = 5
-	tSByte     = 6
-	tUndefined = 7
-	tSShort    = 8
-	tSLong     = 9
-	tSRational = 10
-	tFloat     = 11
-	tDouble    = 12
-	tLong8     = 16
-	tSLong8    = 17
-	tIFD8      = 18
+	tByte  = 1
+	tAscii = 2
+	tShort = 3
+	tLong  = 4
+	//tRational  = 5
+	tSByte = 6
+	//tUndefined = 7
+	tSShort = 8
+	tSLong  = 9
+	//tSRational = 10
+	tFloat  = 11
+	tDouble = 12
+	tLong8  = 16
+	tSLong8 = 17
+	//tIFD8      = 18
 )
 
 func (cog *cog) computeStructure(ifd *IFD) {
@@ -644,7 +644,9 @@ func (cfg Config) RewriteIFDTree(ifd *IFD, out io.Writer) error {
 		}
 	}
 
-	cog.writeHeader(out)
+	if err := cog.writeHeader(out); err != nil {
+		return err
+	}
 
 	off := 16
 	if !cog.bigtiff {
