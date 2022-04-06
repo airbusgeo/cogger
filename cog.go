@@ -87,23 +87,33 @@ type IFD struct {
 	planarInterleaving PlanarInterleaving
 }
 
-func (ifd *IFD) nTilesX() int {
+func (ifd *IFD) NTilesX() int {
 	return (int(ifd.ImageWidth) + int(ifd.TileWidth) - 1) / int(ifd.TileWidth)
 }
-func (ifd *IFD) nTilesY() int {
+func (ifd *IFD) NTilesY() int {
 	return (int(ifd.ImageHeight) + int(ifd.TileHeight) - 1) / int(ifd.TileHeight)
 }
-func (ifd *IFD) nPlanes() int {
+func (ifd *IFD) NPlanes() int {
 	planeCount := 1
 	if ifd.PlanarConfiguration == 2 {
 		planeCount = int(ifd.SamplesPerPixel)
 	}
 	return planeCount
 }
-func (ifd *IFD) tileIdx(x, y, plane int) int {
-	nx, ny := ifd.nTilesX(), ifd.nTilesY()
+func (ifd *IFD) TileIdx(x, y, plane int) int {
+	nx, ny := ifd.NTilesX(), ifd.NTilesY()
 	return int(nx*ny*plane + y*nx + x)
 }
+func (ifd *IFD) TileFromIdx(idx int) (x, y, plane int) {
+	nx, ny := ifd.NTilesX(), ifd.NTilesY()
+	psize := nx * ny
+	plane = idx / psize
+	pidx := idx % psize
+	x = pidx % nx
+	y = pidx / nx
+	return
+}
+
 func (ifd *IFD) tileLen(idx int) int {
 	return int(ifd.TileByteCounts[idx])
 }
@@ -144,7 +154,7 @@ func (ifd *IFD) setDefaultPlanarInterleaving() {
 	if ifd.planarInterleaving != nil {
 		return
 	}
-	if ifd.nPlanes() == 1 {
+	if ifd.NPlanes() == 1 {
 		if ifd.mask != nil {
 			ifd.planarInterleaving = [][]int{{0, 1}}
 		} else {
@@ -215,7 +225,7 @@ func (ifd *IFD) AddMask(msk *IFD) error {
 	if msk.ImageWidth != ifd.ImageWidth || msk.ImageHeight != ifd.ImageHeight ||
 		msk.TileWidth != ifd.TileWidth || msk.TileHeight != ifd.TileHeight ||
 		msk.SamplesPerPixel != 1 || len(msk.BitsPerSample) != 1 ||
-		len(msk.TileByteCounts) != len(ifd.TileByteCounts)/ifd.nPlanes() {
+		len(msk.TileByteCounts) != len(ifd.TileByteCounts)/ifd.NPlanes() {
 		return fmt.Errorf("incompatible mask structure")
 	}
 	switch ifd.SubfileType {
@@ -490,7 +500,7 @@ KNOWN_INCOMPATIBLE_EDITION=NO
 ` //the space at the start of the last line is required to make room for changing NO to YES
 
 func (cog *cog) computeImageryOffsets() error {
-	nplanes := cog.ifd.nPlanes()
+	nplanes := cog.ifd.NPlanes()
 	haveMask := false
 	cog.computeStructure(cog.ifd)
 	if cog.ifd.mask != nil {
@@ -498,7 +508,7 @@ func (cog *cog) computeImageryOffsets() error {
 		haveMask = true
 	}
 	for _, oifd := range cog.ifd.overviews {
-		if oifd.nPlanes() != nplanes {
+		if oifd.NPlanes() != nplanes {
 			return fmt.Errorf("inconsistent band count")
 		}
 		iHaveMask := oifd.mask != nil
@@ -538,7 +548,7 @@ func (cog *cog) computeImageryOffsets() error {
 	datas := cog.ifdInterlacing()
 	tiles := cog.tiles(datas)
 	for tile := range tiles {
-		tileidx := tile.ifd.tileIdx(tile.x, tile.y, tile.plane)
+		tileidx := tile.ifd.TileIdx(tile.x, tile.y, tile.plane)
 		if tile.ifd.tileLen(tileidx) > 0 {
 			if cog.bigtiff {
 				tile.ifd.newTileOffsets[tileidx] = dataOffset
@@ -573,9 +583,9 @@ func (cfg Config) RewriteIFDTree(ifd *IFD, out io.Writer) error {
 		withGDALGhost: cfg.WithGDALGhostArea,
 		ifd:           ifd,
 	}
-	havePlanar := ifd.nPlanes() > 1
+	havePlanar := ifd.NPlanes() > 1
 	for _, oifd := range ifd.overviews {
-		if oifd.nPlanes() > 1 {
+		if oifd.NPlanes() > 1 {
 			havePlanar = true
 		}
 	}
@@ -698,7 +708,7 @@ func (cfg Config) RewriteIFDTree(ifd *IFD, out io.Writer) error {
 	tiles := cog.tiles(datas)
 	data := []byte{}
 	for tile := range tiles {
-		idx := tile.ifd.tileIdx(tile.x, tile.y, tile.plane)
+		idx := tile.ifd.TileIdx(tile.x, tile.y, tile.plane)
 		bc := tile.ifd.tileLen(idx)
 		if bc > 0 {
 			if len(data) < bc+8 {
@@ -992,7 +1002,7 @@ type tile struct {
 }
 
 func (t tile) Data(data []byte) error {
-	idx := t.ifd.tileIdx(t.x, t.y, t.plane)
+	idx := t.ifd.TileIdx(t.x, t.y, t.plane)
 	{ //safety net
 		tl := t.ifd.tileLen(idx)
 		if len(data) != int(tl) {
@@ -1045,7 +1055,7 @@ func (cog *cog) tiles(entries entries) chan tile {
 					maskIdx = 1
 				}
 			}
-			ntx, nty := entry.ifd.nTilesX(), entry.ifd.nTilesY()
+			ntx, nty := entry.ifd.NTilesX(), entry.ifd.NTilesY()
 			for _, l1 := range entry.ifd.planarInterleaving {
 				for y := 0; y < nty; y++ {
 					for x := 0; x < ntx; x++ {
