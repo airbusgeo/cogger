@@ -187,6 +187,8 @@ func (ifd *IFD) AddOverview(ovr *IFD) error {
 	ovr.GeoAsciiParamsTag = ""
 	ovr.GeoDoubleParamsTag = nil
 	ovr.GeoKeyDirectoryTag = nil
+	ovr.GDALMetaData = ""
+	ovr.RPCs = nil
 	idx := 0
 	for idx = range ifd.overviews {
 		if ifd.overviews[idx].ImageWidth > ovr.ImageWidth &&
@@ -210,6 +212,9 @@ func (ifd *IFD) AddOverview(ovr *IFD) error {
 	}
 	ifd.overviews = append(ifd.overviews, nil)
 	copy(ifd.overviews[idx+1:], ifd.overviews[idx:])
+	if ovr.mask != nil {
+		ovr.mask.SubfileType = subfileTypeMask | subfileTypeReducedImage
+	}
 	ifd.overviews[idx] = ovr
 	return nil
 }
@@ -242,6 +247,8 @@ func (ifd *IFD) AddMask(msk *IFD) error {
 	msk.GeoAsciiParamsTag = ""
 	msk.GeoDoubleParamsTag = nil
 	msk.GeoKeyDirectoryTag = nil
+	msk.GDALMetaData = ""
+	msk.RPCs = nil
 	ifd.mask = msk
 	return nil
 }
