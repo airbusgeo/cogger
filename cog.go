@@ -427,6 +427,9 @@ type Config struct {
 
 	//WithGDALGhostArea inserts gdal specific read optimizations
 	WithGDALGhostArea bool
+
+	//PreloadTiles is the number of tiles to concurrently preload when writing
+	PreloadTiles int
 }
 
 func DefaultConfig() Config {
@@ -434,6 +437,7 @@ func DefaultConfig() Config {
 		Encoding:          binary.LittleEndian,
 		BigTIFF:           false,
 		WithGDALGhostArea: true,
+		PreloadTiles:      0,
 	}
 }
 
@@ -442,6 +446,7 @@ type cog struct {
 	ifd           *IFD
 	bigtiff       bool
 	withGDALGhost bool
+	preloadTiles  int
 }
 
 func (cog *cog) writeHeader(w io.Writer) error {
@@ -553,7 +558,7 @@ func (cog *cog) computeImageryOffsets() error {
 	}
 
 	datas := cog.ifdInterlacing()
-	tiles := cog.tiles(datas)
+	tiles := cog.tiles(datas, 0)
 	for tile := range tiles {
 		tileidx := tile.ifd.TileIdx(tile.x, tile.y, tile.plane)
 		if tile.ifd.tileLen(tileidx) > 0 {
@@ -588,6 +593,7 @@ func (cfg Config) RewriteIFDTree(ifd *IFD, out io.Writer) error {
 		enc:           cfg.Encoding,
 		bigtiff:       cfg.BigTIFF,
 		withGDALGhost: cfg.WithGDALGhostArea,
+		preloadTiles:  cfg.PreloadTiles,
 		ifd:           ifd,
 	}
 	havePlanar := ifd.NPlanes() > 1
@@ -712,7 +718,7 @@ func (cfg Config) RewriteIFDTree(ifd *IFD, out io.Writer) error {
 	}
 
 	datas := cog.ifdInterlacing()
-	tiles := cog.tiles(datas)
+	tiles := cog.tiles(datas, cog.preloadTiles)
 	data := []byte{}
 	for tile := range tiles {
 		idx := tile.ifd.TileIdx(tile.x, tile.y, tile.plane)
@@ -1003,18 +1009,47 @@ func (cog *cog) writeIFD(w io.Writer, ifd *IFD, offset int, striledata *tagData,
 }
 
 type tile struct {
-	ifd   *IFD
-	x, y  int
-	plane int
+	ifd          *IFD
+	x, y         int
+	plane        int
+	preloading   chan struct{}
+	preloaded    []byte
+	preloadError error
 }
 
-func (t tile) Data(data []byte) error {
+func (t *tile) Preload() {
+	t.preloading = make(chan struct{})
+	idx := t.ifd.TileIdx(t.x, t.y, t.plane)
+	tl := t.ifd.tileLen(idx)
+	t.preloaded = make([]byte, tl)
+	go func() {
+		if len(t.preloaded) > 0 {
+			t.preloadError = t.ifd.LoadTile(idx, t.preloaded)
+		}
+		close(t.preloading)
+	}()
+}
+
+func (t *tile) Data(data []byte) error {
+	if t.preloading != nil {
+		<-t.preloading
+	}
 	idx := t.ifd.TileIdx(t.x, t.y, t.plane)
 	{ //safety net
 		tl := t.ifd.tileLen(idx)
 		if len(data) != int(tl) {
 			panic("wrong buffer size")
 		}
+	}
+	if t.preloading != nil {
+		if t.preloadError != nil {
+			return t.preloadError
+		}
+		if len(t.preloaded) != len(data) {
+			return fmt.Errorf("preloaded buffer len=%d, expecting %d", len(t.preloaded), len(data))
+		}
+		copy(data, t.preloaded)
+		return nil
 	}
 	if len(data) > 0 {
 		return t.ifd.LoadTile(idx, data)
@@ -1049,8 +1084,8 @@ func (cog *cog) ifdInterlacing() entries {
 	return ret
 }
 
-func (cog *cog) tiles(entries entries) chan tile {
-	ch := make(chan tile)
+func (cog *cog) tiles(entries entries, preload int) chan *tile {
+	ch := make(chan *tile, preload)
 	go func() {
 		defer close(ch)
 		for _, entry := range entries {
@@ -1067,21 +1102,26 @@ func (cog *cog) tiles(entries entries) chan tile {
 				for y := 0; y < nty; y++ {
 					for x := 0; x < ntx; x++ {
 						for _, p := range l1 {
+							var tt *tile
 							if p != maskIdx {
-								ch <- tile{
+								tt = &tile{
 									ifd:   entry.ifd,
 									plane: p,
 									x:     x,
 									y:     y,
 								}
 							} else {
-								ch <- tile{
+								tt = &tile{
 									ifd:   entry.mask,
 									plane: 0,
 									x:     x,
 									y:     y,
 								}
 							}
+							if preload > 0 {
+								tt.Preload()
+							}
+							ch <- tt
 						}
 					}
 				}
