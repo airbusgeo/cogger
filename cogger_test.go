@@ -51,6 +51,7 @@ func TestCases(t *testing.T) {
 		"graymask.tif",
 		"gray.tif",
 		"rgbmask.tif",
+		"rgbmaskline.tif",
 		"rgb.tif",
 	}
 	for i := range cases {

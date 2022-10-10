@@ -93,20 +93,20 @@ func Rewrite(out io.Writer, readers ...tiff.ReadAtReadSeeker) error {
 	}
 	sort.Slice(ifds, func(i, j int) bool {
 		//return in order: fullres, fullresmasks, ovr1, ovr1masks, ovr2, ....
-		if ifds[i].ImageLength != ifds[j].ImageLength {
-			return ifds[i].ImageLength > ifds[j].ImageLength
+		if ifds[i].ImageLength*ifds[i].ImageWidth != ifds[j].ImageLength*ifds[j].ImageWidth {
+			return ifds[i].ImageLength*ifds[i].ImageWidth > ifds[j].ImageLength*ifds[j].ImageWidth
 		}
 		return ifds[i].SubfileType < ifds[j].SubfileType
 	})
 	if ifds[0].SubfileType != 0 {
-		return fmt.Errorf("failed sort: first px=%d type=%d", ifds[0].ImageLength, ifds[0].SubfileType)
+		return fmt.Errorf("failed sort: first px=%dx%d type=%d", ifds[0].ImageLength, ifds[0].ImageWidth, ifds[0].SubfileType)
 	}
 	cog := new()
 	cog.ifd = ifds[0]
 	curOvr := cog.ifd
-	l := curOvr.ImageLength
+	s := curOvr.ImageLength * curOvr.ImageWidth
 	for _, ci := range ifds[1:] {
-		if ci.ImageLength == l {
+		if ci.ImageLength*ci.ImageWidth == s {
 			err = curOvr.AddMask(ci)
 			if err != nil {
 				return err
@@ -114,7 +114,7 @@ func Rewrite(out io.Writer, readers ...tiff.ReadAtReadSeeker) error {
 		} else {
 			curOvr.AddOverview(ci)
 			curOvr = ci
-			l = curOvr.ImageLength
+			s = curOvr.ImageLength * curOvr.ImageWidth
 		}
 	}
 
