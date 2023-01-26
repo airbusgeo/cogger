@@ -17,7 +17,7 @@ func main() {
 	ctx := context.Background()
 	err := run(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, err.Error())
+		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
 }
@@ -52,7 +52,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create %s: %w", *outfile, err)
 	}
-	err = cogger.Rewrite(out, readers...)
+	err = cogger.DefaultConfig().Rewrite(out, readers...)
 	if err != nil {
 		return fmt.Errorf("mucog write: %w", err)
 	}

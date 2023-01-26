@@ -7,64 +7,87 @@ import (
 	"math"
 )
 
-func arrayFieldSize(data interface{}, bigtiff bool) uint64 {
+func arrayFieldSize32(data interface{}, bigtiff bool) int {
+	ll := 0
+	switch d := data.(type) {
+	case []uint32:
+		ll = len(d)
+	case []uint64:
+		ll = len(d)
+	default:
+		panic("bug")
+	}
+	if bigtiff {
+		if ll <= 2 {
+			return 20
+		}
+		return 20 + 4*ll
+	} else {
+		if ll <= 1 {
+			return 12
+		}
+		return 12 + 4*ll
+	}
+}
+
+func arrayFieldSize(data interface{}, bigtiff bool) int {
 	if bigtiff {
 		switch d := data.(type) {
 		case []byte:
 			if len(d) <= 8 {
 				return 20
 			}
-			return uint64(20 + len(d))
+			return 20 + len(d)
 		case []uint16:
 			if len(d) <= 4 {
 				return 20
 			}
-			return uint64(20 + 2*len(d))
+			return 20 + 2*len(d)
 		case []uint32:
 			if len(d) <= 2 {
 				return 20
 			}
-			return uint64(20 + 4*len(d))
+			return 20 + 4*len(d)
 		case []uint64:
 			if len(d) <= 1 {
 				return 20
 			}
-			return uint64(20 + 8*len(d))
+			return 20 + 8*len(d)
 		case []int8:
 			if len(d) <= 8 {
 				return 20
 			}
-			return uint64(20 + len(d))
+			return 20 + len(d)
 		case []int16:
 			if len(d) <= 4 {
 				return 20
 			}
-			return uint64(20 + len(d)*2)
+			return 20 + len(d)*2
 		case []int32:
 			if len(d) <= 2 {
 				return 20
 			}
-			return uint64(20 + len(d)*4)
+			return 20 + len(d)*4
 		case []int64:
 			if len(d) <= 1 {
 				return 20
 			}
-			return uint64(20 + len(d)*8)
+			return 20 + len(d)*8
 		case []float32:
 			if len(d) <= 2 {
 				return 20
 			}
-			return uint64(20 + len(d)*4)
+			return 20 + len(d)*4
 		case []float64:
 			if len(d) <= 1 {
 				return 20
 			}
-			return uint64(20 + len(d)*8)
+			return 20 + len(d)*8
 		case string:
 			if len(d) <= 7 {
 				return 20
 			}
-			return uint64(20 + len(d) + 1)
+			return 20 + len(d) + 1
 		default:
 			panic("wrong type")
 		}
@@ -74,51 +97,64 @@ func arrayFieldSize(data interface{}, bigtiff bool) uint64 {
 			if len(d) <= 4 {
 				return 12
 			}
-			return uint64(12 + len(d))
+			return 12 + len(d)
 		case []uint16:
 			if len(d) <= 2 {
 				return 12
 			}
-			return uint64(12 + 2*len(d))
+			return 12 + 2*len(d)
 		case []uint32:
 			if len(d) <= 1 {
 				return 12
 			}
-			return uint64(12 + 4*len(d))
+			return 12 + 4*len(d)
 		case []int8:
 			if len(d) <= 4 {
 				return 12
 			}
-			return uint64(12 + len(d))
+			return 12 + len(d)
 		case []int16:
 			if len(d) <= 2 {
 				return 12
 			}
-			return uint64(12 + len(d)*2)
+			return 12 + len(d)*2
 		case []int32:
 			if len(d) <= 1 {
 				return 12
 			}
-			return uint64(12 + len(d)*4)
+			return 12 + len(d)*4
 		case []float32:
 			if len(d) <= 1 {
 				return 12
 			}
-			return uint64(12 + len(d)*4)
+			return 12 + len(d)*4
 		case string:
 			if len(d) <= 3 {
 				return 12
 			}
-			return uint64(12 + len(d) + 1)
+			return 12 + len(d) + 1
 		case []float64:
-			return uint64(12 + len(d)*8)
+			return 12 + len(d)*8
 		case []int64:
-			return uint64(12 + len(d)*8)
+			return 12 + len(d)*8
 		case []uint64:
-			return uint64(12 + len(d)*8)
+			return 12 + len(d)*8
 		default:
 			panic("wrong type")
 		}
+	}
+}
+
+func (cog *cog) writeArray32(w io.Writer, tag uint16, data interface{}, tags *tagData) error {
+	switch d := data.(type) {
+	case []uint64:
+		d32 := make([]uint32, len(d))
+		for i := range d {
+			d32[i] = uint32(d[i])
+		}
+		return cog.writeArray(w, tag, d32, tags)
+	default:
+		panic("bug")
 	}
 }
 
@@ -141,7 +177,7 @@ func (cog *cog) writeArray(w io.Writer, tag uint16, data interface{}, tags *tagD
 					buf[12+i] = d[i]
 				}
 			} else {
-				cog.enc.PutUint64(buf[12:], tags.NextOffset())
+				cog.enc.PutUint64(buf[12:], uint64(tags.NextOffset()))
 				tags.Write(d)
 			}
 		} else {
@@ -165,9 +201,11 @@ func (cog *cog) writeArray(w io.Writer, tag uint16, data interface{}, tags *tagD
 					cog.enc.PutUint16(buf[12+i*2:], d[i])
 				}
 			} else {
-				cog.enc.PutUint64(buf[12:], tags.NextOffset())
+				cog.enc.PutUint64(buf[12:], uint64(tags.NextOffset()))
 				for i := 0; i < n; i++ {
-					binary.Write(tags, cog.enc, d[i])
+					if err := binary.Write(tags, cog.enc, d[i]); err != nil {
+						return err
+					}
 				}
 			}
 		} else {
@@ -179,7 +217,9 @@ func (cog *cog) writeArray(w io.Writer, tag uint16, data interface{}, tags *tagD
 			} else {
 				cog.enc.PutUint32(buf[8:], uint32(tags.NextOffset()))
 				for i := 0; i < n; i++ {
-					binary.Write(tags, cog.enc, d[i])
+					if err := binary.Write(tags, cog.enc, d[i]); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -193,9 +233,11 @@ func (cog *cog) writeArray(w io.Writer, tag uint16, data interface{}, tags *tagD
 					cog.enc.PutUint32(buf[12+i*4:], d[i])
 				}
 			} else {
-				cog.enc.PutUint64(buf[12:], tags.NextOffset())
+				cog.enc.PutUint64(buf[12:], uint64(tags.NextOffset()))
 				for i := 0; i < n; i++ {
-					binary.Write(tags, cog.enc, d[i])
+					if err := binary.Write(tags, cog.enc, d[i]); err != nil {
+						return err
+					}
 				}
 			}
 		} else {
@@ -207,7 +249,9 @@ func (cog *cog) writeArray(w io.Writer, tag uint16, data interface{}, tags *tagD
 			} else {
 				cog.enc.PutUint32(buf[8:], uint32(tags.NextOffset()))
 				for i := 0; i < n; i++ {
-					binary.Write(tags, cog.enc, d[i])
+					if err := binary.Write(tags, cog.enc, d[i]); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -219,16 +263,20 @@ func (cog *cog) writeArray(w io.Writer, tag uint16, data interface{}, tags *tagD
 			if n <= 1 {
 				cog.enc.PutUint64(buf[12:], d[0])
 			} else {
-				cog.enc.PutUint64(buf[12:], tags.NextOffset())
+				cog.enc.PutUint64(buf[12:], uint64(tags.NextOffset()))
 				for i := 0; i < n; i++ {
-					binary.Write(tags, cog.enc, d[i])
+					if err := binary.Write(tags, cog.enc, d[i]); err != nil {
+						return err
+					}
 				}
 			}
 		} else {
 			cog.enc.PutUint32(buf[4:8], uint32(n))
 			cog.enc.PutUint32(buf[8:], uint32(tags.NextOffset()))
 			for i := 0; i < n; i++ {
-				binary.Write(tags, cog.enc, d[i])
+				if err := binary.Write(tags, cog.enc, d[i]); err != nil {
+					return err
+				}
 			}
 		}
 	case []float32:
@@ -241,9 +289,11 @@ func (cog *cog) writeArray(w io.Writer, tag uint16, data interface{}, tags *tagD
 					cog.enc.PutUint32(buf[12+i*4:], math.Float32bits(d[i]))
 				}
 			} else {
-				cog.enc.PutUint64(buf[12:], tags.NextOffset())
+				cog.enc.PutUint64(buf[12:], uint64(tags.NextOffset()))
 				for i := 0; i < n; i++ {
-					binary.Write(tags, cog.enc, math.Float32bits(d[i]))
+					if err := binary.Write(tags, cog.enc, math.Float32bits(d[i])); err != nil {
+						return err
+					}
 				}
 			}
 		} else {
@@ -255,7 +305,9 @@ func (cog *cog) writeArray(w io.Writer, tag uint16, data interface{}, tags *tagD
 			} else {
 				cog.enc.PutUint32(buf[8:], uint32(tags.NextOffset()))
 				for i := 0; i < n; i++ {
-					binary.Write(tags, cog.enc, math.Float32bits(d[i]))
+					if err := binary.Write(tags, cog.enc, math.Float32bits(d[i])); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -269,16 +321,20 @@ func (cog *cog) writeArray(w io.Writer, tag uint16, data interface{}, tags *tagD
 					cog.enc.PutUint64(buf[12+i*4:], math.Float64bits(d[0]))
 				}
 			} else {
-				cog.enc.PutUint64(buf[12:], tags.NextOffset())
+				cog.enc.PutUint64(buf[12:], uint64(tags.NextOffset()))
 				for i := 0; i < n; i++ {
-					binary.Write(tags, cog.enc, math.Float64bits(d[i]))
+					if err := binary.Write(tags, cog.enc, math.Float64bits(d[i])); err != nil {
+						return err
+					}
 				}
 			}
 		} else {
 			cog.enc.PutUint32(buf[4:8], uint32(n))
 			cog.enc.PutUint32(buf[8:], uint32(tags.NextOffset()))
 			for i := 0; i < n; i++ {
-				binary.Write(tags, cog.enc, math.Float64bits(d[i]))
+				if err := binary.Write(tags, cog.enc, math.Float64bits(d[i])); err != nil {
+					return err
+				}
 			}
 		}
 	case string:
@@ -292,7 +348,7 @@ func (cog *cog) writeArray(w io.Writer, tag uint16, data interface{}, tags *tagD
 				}
 				buf[12+n-1] = 0
 			} else {
-				cog.enc.PutUint64(buf[12:], tags.NextOffset())
+				cog.enc.PutUint64(buf[12:], uint64(tags.NextOffset()))
 				tags.Write(append([]byte(d), 0))
 			}
 		} else {
