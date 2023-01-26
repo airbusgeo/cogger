@@ -9,8 +9,8 @@ import (
 func TestTilerOverviews(t *testing.T) {
 	testfunc := func(w, h int, expectedlen int) {
 		t.Helper()
-		tiler, _ := NewTiler(w, h, InternalTileSize(300, 300), MinOverviewSize(3))
-		pyramid := tiler.Tiling()
+		tiler, _ := NewStripper(w, h, InternalTileSize(300, 300), MinOverviewSize(3))
+		pyramid := tiler.Pyramid()
 		assert.Len(t, pyramid, expectedlen)
 	}
 	cases := [][]int{
