@@ -768,7 +768,7 @@ func (cfg Config) RewriteIFDHeader(ifd *IFD, out io.Writer) error {
 	return nil
 }
 
-func (cfg Config) RewriteIFDTree(ifd *IFD, out io.Writer) error {
+func (cfg Config) RewriteIFDTreeSplitted(ifd *IFD, headerOut, tileDataOut io.Writer) error {
 	cog := &cog{
 		enc:                cfg.Encoding,
 		bigtiff:            cfg.BigTIFF,
@@ -777,13 +777,17 @@ func (cfg Config) RewriteIFDTree(ifd *IFD, out io.Writer) error {
 		planarInterleaving: cfg.PlanarInterleaving,
 		ifd:                ifd,
 	}
-	if err := cog.rewriteIFDHeader(out); err != nil {
+	if err := cog.rewriteIFDHeader(headerOut); err != nil {
 		return err
 	}
-	if err := cog.writeTileData(out); err != nil {
+	if err := cog.writeTileData(tileDataOut); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (cfg Config) RewriteIFDTree(ifd *IFD, out io.Writer) error {
+	return cfg.RewriteIFDTreeSplitted(ifd, out, out)
 }
 
 func (cog *cog) writeIFD(w io.Writer, ifd *IFD, offset int, striledata *tagData, next bool) error {

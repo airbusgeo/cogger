@@ -61,6 +61,10 @@ func Rewrite(out io.Writer, readers ...tiff.ReadAtReadSeeker) error {
 }
 
 func (cfg Config) Rewrite(out io.Writer, readers ...tiff.ReadAtReadSeeker) error {
+	return cfg.RewriteSplitted(out, out, readers...)
+}
+
+func (cfg Config) RewriteSplitted(headerOut, dataOut io.Writer, readers ...tiff.ReadAtReadSeeker) error {
 	if len(readers) == 0 {
 		return fmt.Errorf("missing readers")
 	}
@@ -94,7 +98,7 @@ func (cfg Config) Rewrite(out io.Writer, readers ...tiff.ReadAtReadSeeker) error
 		}
 	}
 
-	err = cfg.RewriteIFDTree(ifds[0], out)
+	err = cfg.RewriteIFDTreeSplitted(ifds[0], headerOut, dataOut)
 	if err != nil {
 		return fmt.Errorf("mucog write: %w", err)
 	}

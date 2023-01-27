@@ -276,25 +276,25 @@ func unmarshalIFD(ifd tiff.IFD) (IFD, error) {
 	return cifd, nil
 }
 
-// given a tile inside the main cog, return the strip and the index of the tile inside that strip
+// given a tile x,y inside the output cog,
+// return the corresponding strip and the index stripx,stripy of the tile inside that strip
 func (img Image) tileStripIdx(x, y int) (strip int, stripx, stripy int) {
-	/*
-		ntx := (c.cellXSize + c.internalTileSize - 1) / c.internalTileSize
-		nty := (c.cellYSize + c.internalTileSize - 1) / c.internalTileSize
-		fx := x / ntx
-		fy := y / nty
-		cell = fy*c.nCellsX + fx
-		cellx = x % ntx
-		celly = y % nty
-		return
-	*/
+	/* first find the correct strip */
+	strip = 0
+	accumy := 0
+	for {
+		stripnty := (img.Strips[strip].Height + img.internalTilingHeight - 1) / img.internalTilingHeight
+		if accumy+stripnty <= y {
+			accumy += stripnty
+			strip++
+			continue
+		}
+		stripy = y - accumy
+		break
+	}
 
-	ntx := (img.Strips[0].Width + img.internalTilingWidth - 1) / img.internalTilingWidth
-	nty := (img.Strips[0].Height + img.internalTilingHeight - 1) / img.internalTilingHeight
-
-	strip = y / nty
+	ntx := (img.Strips[strip].Width + img.internalTilingWidth - 1) / img.internalTilingWidth
 	stripx = x % ntx
-	stripy = y % nty
 	return
 }
 
