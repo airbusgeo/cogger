@@ -11,6 +11,7 @@ import (
 type Stripper struct {
 	targetStripPixelCount                     int
 	minOverviewSize                           int
+	fullresStripHeightMultiple                int
 	internalTilingWidth, internalTilingHeight int
 	overviewCount                             int
 	width, height                             int
@@ -66,21 +67,39 @@ func TargetPixelCount(count int) StripperOption {
 	}
 }
 
+// FullresStripHeightMultiple forces the strip height to be a multiple of the given heightBase
+// value provided. This can be useful to ensure that the full resolution strip heights are a
+// multiple of the internal tiling height of the source dataset to avoid duplicated source-tile
+// decompressions.
+func FullresStripHeightMuliple(heightBase int) StripperOption {
+	return func(t *Stripper) error {
+		if heightBase <= 0 {
+			return ErrInvalidOption{"strip height multiple must be >=1"}
+		}
+		t.fullresStripHeightMultiple = heightBase
+		return nil
+	}
+}
+
 func NewStripper(width, height int, options ...StripperOption) (Stripper, error) {
 	var err error
 	t := Stripper{
-		width:                 width,
-		height:                height,
-		targetStripPixelCount: 8192 * 8192,
-		internalTilingWidth:   256,
-		internalTilingHeight:  256,
-		overviewCount:         -1,
-		minOverviewSize:       2,
+		width:                      width,
+		height:                     height,
+		fullresStripHeightMultiple: 0,
+		targetStripPixelCount:      8192 * 8192,
+		internalTilingWidth:        256,
+		internalTilingHeight:       256,
+		overviewCount:              -1,
+		minOverviewSize:            2,
 	}
 	for _, o := range options {
 		if err := o(&t); err != nil {
 			return t, err
 		}
+	}
+	if t.fullresStripHeightMultiple%t.internalTilingHeight != 0 {
+		return t, fmt.Errorf("StripHeightMultiple %d must be a multiple of internal tiling height %d", t.fullresStripHeightMultiple, t.internalTilingHeight)
 	}
 	if t.pyr, err = t.pyramid(width, height); err != nil {
 		return t, err
@@ -217,7 +236,13 @@ func (t Stripper) stripping(srcWidth, srcHeight, dstWidth, dstHeight int) Image 
 	if stripHeight <= t.internalTilingHeight {
 		stripHeight = t.internalTilingHeight
 	}
-	if stripHeight%t.internalTilingHeight != 0 {
+
+	// compute a strip size aligned to the strip height multiple if requested
+	// and we are not downsampling, otherwise align to the internal tiling height.
+	// NB: the stripHeightMultiple is required to be a multiple of the internalTilingHeight
+	if srcWidth == dstWidth && srcHeight == dstHeight && t.fullresStripHeightMultiple != 0 {
+		stripHeight = (stripHeight/t.fullresStripHeightMultiple + 1) * t.fullresStripHeightMultiple
+	} else if stripHeight%t.internalTilingHeight != 0 {
 		stripHeight = (stripHeight/t.internalTilingHeight + 1) * t.internalTilingHeight
 	}
 	numStrips = int(math.Ceil(float64(dstHeight) / float64(stripHeight)))
