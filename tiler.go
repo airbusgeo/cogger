@@ -1,9 +1,11 @@
 package cogger
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math"
+	"sync"
 
 	"github.com/google/tiff"
 )
@@ -12,6 +14,7 @@ type Stripper struct {
 	targetStripPixelCount                     int
 	minOverviewSize                           int
 	fullresStripHeightMultiple                int
+	singleFR                                  bool
 	internalTilingWidth, internalTilingHeight int
 	overviewCount                             int
 	width, height                             int
@@ -63,6 +66,12 @@ func TargetPixelCount(count int) StripperOption {
 			return ErrInvalidOption{"target pixel count must be >=0"}
 		}
 		t.targetStripPixelCount = count
+		return nil
+	}
+}
+func SkipFullresParallelisation() StripperOption {
+	return func(t *Stripper) error {
+		t.singleFR = true
 		return nil
 	}
 }
@@ -143,6 +152,9 @@ type Pyramid []Image
 func (t Stripper) Pyramid() Pyramid {
 	return t.pyr
 }
+func (t Stripper) Workflow(ctx context.Context) *Workflow {
+	return t.pyr.Workflow(ctx)
+}
 
 // A Node represents a single Strip in the Dag
 type Node struct {
@@ -153,6 +165,150 @@ type Node struct {
 }
 
 type Dag [][]Node
+
+// Workflow manages the list of strips that need to be created and the order in which they
+// can be processed concurrently
+type Workflow struct {
+	pyr   Pyramid
+	dag   Dag
+	sent  [][]bool
+	done  [][]bool
+	steps <-chan Step
+	tick  chan struct{}
+	m     sync.Mutex
+}
+
+// Step represents a single strip operation
+type Step struct {
+	// SrcNames is the list of source strips that will be used to compose the current strip
+	// If SrcNames is empty, then it is implied to be the original dataset
+	SrcNames []string
+	// DstName is the name of the strip that must be created. It will be referenced by the
+	// SrcNames member of the next step
+	DstName             string
+	ULX, ULY            float64
+	SrcWidth, SrcHeight float64
+	DstWidth, DstHeight int
+	dagZ, dagS          int
+}
+
+func (w *Workflow) step(z, s int) Step {
+	stripname := func(z, s int) string {
+		return fmt.Sprintf("strip_%d_%d", z, s)
+	}
+	st := Step{
+		dagZ:    z,
+		dagS:    s,
+		DstName: stripname(z, s),
+	}
+	if z != 0 {
+		n := w.dag[z][s]
+		st.SrcNames = make([]string, len(n.Parents))
+		for i, p := range n.Parents {
+			st.SrcNames[i] = stripname(z-1, p)
+		}
+	}
+	pl := w.pyr[z].Strips[s]
+	de := w.dag[z][s]
+	st.ULX = pl.SrcTopLeftX
+	st.ULY = pl.SrcTopLeftY - float64(de.ParentOffet)
+	st.SrcWidth = pl.SrcWidth
+	st.SrcHeight = pl.SrcHeight
+	st.DstWidth = pl.Width
+	st.DstHeight = pl.Height
+	return st
+}
+
+// Steps returns a channel of steps that can be processed concurrently
+func (w *Workflow) Steps() <-chan Step {
+	return w.steps
+}
+
+func (w *Workflow) createsteps(ctx context.Context) <-chan Step {
+	nsteps := 0
+	for z := range w.dag {
+		nsteps += len(w.dag[z])
+	}
+
+	schan := make(chan Step, nsteps)
+	w.tick = make(chan struct{})
+
+	for s := range w.dag[0] {
+		schan <- w.step(0, s)
+		w.sent[0][s] = true
+	}
+
+	go func() {
+		defer close(schan)
+		for {
+			select {
+			case <-ctx.Done():
+				fmt.Println("ctx done")
+				w.m.Lock()
+				w.tick = nil
+				w.m.Unlock()
+				return
+			case <-w.tick:
+				w.m.Lock()
+				allSent := true
+				for z := range w.dag {
+					for s := range w.dag[z] {
+						if w.sent[z][s] {
+							continue
+						}
+						allSent = false
+						ready := true
+						for _, p := range w.dag[z][s].Parents {
+							if !w.done[z-1][p] {
+								ready = false
+								break
+							}
+						}
+						if ready {
+							w.sent[z][s] = true
+							schan <- w.step(z, s)
+						}
+					}
+				}
+				if allSent {
+					w.tick = nil
+					w.m.Unlock()
+					return
+				}
+				w.m.Unlock()
+			}
+		}
+	}()
+
+	return schan
+}
+
+// Ack acknowledges the completion of a step, in order for the workflow to be
+// able to schedule the next step
+func (w *Workflow) Ack(step Step) {
+	w.m.Lock()
+	w.done[step.dagZ][step.dagS] = true
+	if w.tick != nil {
+		w.tick <- struct{}{}
+	}
+	w.m.Unlock()
+}
+
+func (pyr Pyramid) Workflow(ctx context.Context) *Workflow {
+	w := &Workflow{
+		dag: pyr.DAG(),
+		pyr: pyr,
+	}
+	w.sent = make([][]bool, len(w.dag))
+	w.done = make([][]bool, len(w.dag))
+	for z := range w.dag {
+		w.sent[z] = make([]bool, len(w.dag[z]))
+		w.done[z] = make([]bool, len(w.dag[z]))
+	}
+	w.steps = w.createsteps(ctx)
+
+	return w
+}
 
 func (pyr Pyramid) DAG() Dag {
 	ret := make(Dag, len(pyr))
@@ -210,7 +366,28 @@ func (t Stripper) pyramid(width, height int) (Pyramid, error) {
 	pyramid := make([]Image, overviewCount+1)
 
 	iw, ih := width, height
-	pyramid[0] = t.stripping(width, height, width, height)
+	if t.singleFR {
+		pyramid[0] = Image{
+			internalTilingWidth:  t.internalTilingWidth,
+			internalTilingHeight: t.internalTilingHeight,
+			Width:                width,
+			Height:               height,
+			Strips: []Strip{
+				{
+					Width:       width,
+					Height:      height,
+					TopLeftX:    0,
+					TopLeftY:    0,
+					SrcTopLeftX: 0,
+					SrcTopLeftY: 0,
+					SrcWidth:    float64(width),
+					SrcHeight:   float64(height),
+				},
+			},
+		}
+	} else {
+		pyramid[0] = t.stripping(width, height, width, height)
+	}
 	for ovr := 1; ovr <= overviewCount; ovr++ {
 		if iw <= 1 || ih <= 1 {
 			return nil, ErrInvalidOption{"requested overview count results in 0-sized image"}
