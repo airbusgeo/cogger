@@ -25,19 +25,19 @@ const (
 //
 // Examples for a 3-band rgb image:
 //
-//  - [[0,1,2]] will result in tiles written in the order r1,g1,b1,r2,g2,b2...rn,gn,bn. This
-//    is the default.
-//  - [0],[1],[2]] => r1,r2...rn,g1,g2....gn,b1,b2...bn
-//  - [0],[2],[1]] => r1,r2...rn,b1,b2....bn,g1,g2...gn
-//  - [0,1],[2]] => r1,g1,r2,g2...rn,gn,b1,b2....bn
+//   - [[0,1,2]] will result in tiles written in the order r1,g1,b1,r2,g2,b2...rn,gn,bn. This
+//     is the default.
+//   - [0],[1],[2]] => r1,r2...rn,g1,g2....gn,b1,b2...bn
+//   - [0],[2],[1]] => r1,r2...rn,b1,b2....bn,g1,g2...gn
+//   - [0,1],[2]] => r1,g1,r2,g2...rn,gn,b1,b2....bn
 //
 // Examples for a 3-band rgb image with mask:
 //
-//  - [[0,1,2,3]] will result in tiles written in the order r1,g1,b1,m1,r2,g2,b2,m2...rn,gn,bn,mn. This
-//    is the default.
-//  - [0],[1],[2],[3]] => r1,r2...rn,g1,g2...gn,b1,b2...bn,m1,m2...mn
-//  - [0],[3],[2],[1]] => r1,r2...rn,m1,m2...m3,b1,b2...bn,g1,g2...gn
-//  - [0,1],[2],[3]] => r1,g1,r2,g2...rn,gn,b1,b2....bn,m1m2...mn
+//   - [[0,1,2,3]] will result in tiles written in the order r1,g1,b1,m1,r2,g2,b2,m2...rn,gn,bn,mn. This
+//     is the default.
+//   - [0],[1],[2],[3]] => r1,r2...rn,g1,g2...gn,b1,b2...bn,m1,m2...mn
+//   - [0],[3],[2],[1]] => r1,r2...rn,m1,m2...m3,b1,b2...bn,g1,g2...gn
+//   - [0,1],[2],[3]] => r1,g1,r2,g2...rn,gn,b1,b2....bn,m1m2...mn
 //
 // For a n-band image, each band index from 0 to n-1 must appear exactly once
 // in the array. If the image also has a mask, the index n must also appear exactly
@@ -430,6 +430,12 @@ type Config struct {
 
 	//PreloadTiles is the number of tiles to concurrently preload when writing
 	PreloadTiles int
+
+	//KeptOverviews if not nil represents the indices of the overviews to keep
+	KeptOverviews []int
+
+	//KeptMasks if not nil represents the indices of the masks to keep
+	KeptMasks []int
 }
 
 func DefaultConfig() Config {

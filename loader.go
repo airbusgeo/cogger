@@ -3,6 +3,7 @@ package cogger
 import (
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 
 	"github.com/google/tiff"
@@ -80,13 +81,25 @@ func (cfg Config) Rewrite(out io.Writer, readers ...tiff.ReadAtReadSeeker) error
 	}
 	curOvr := ifds[0]
 	l := curOvr.ImageHeight
+	ovrIndex := -1
+	maskIndex := -1
 	for _, ci := range ifds[1:] {
+		err = nil
 		if ci.ImageHeight == l {
-			err = curOvr.AddMask(ci)
+			maskIndex++
+			if curOvr != nil && (cfg.KeptMasks == nil || slices.Contains(cfg.KeptMasks, maskIndex)) {
+				err = curOvr.AddMask(ci)
+			}
 		} else {
-			err = ifds[0].AddOverview(ci)
-			curOvr = ci
-			l = curOvr.ImageHeight
+			ovrIndex++
+			maskIndex = -1
+			l = ci.ImageHeight
+			if cfg.KeptOverviews == nil || slices.Contains(cfg.KeptOverviews, ovrIndex) {
+				curOvr = ci
+				err = ifds[0].AddOverview(ci)
+			} else {
+				curOvr = nil
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("failed to add overview/mask %dx%dx%d: %w",
