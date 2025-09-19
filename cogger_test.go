@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/tiff"
+	"github.com/stretchr/testify/assert"
 )
 
 func testCase(t *testing.T, expected_filename string, filenames ...string) {
@@ -34,7 +35,7 @@ func testCase(t *testing.T, expected_filename string, filenames ...string) {
 	buf := bytes.Buffer{}
 
 	hasher.Reset()
-	_ = Rewrite(&buf, files...)
+	assert.NoError(t, Rewrite(&buf, files...))
 	_, _ = io.Copy(hasher, &buf)
 
 	coghash := hasher.Sum(nil)

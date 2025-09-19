@@ -6,95 +6,68 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/google/tiff"
 	_ "github.com/google/tiff/bigtiff"
 )
-
-type subfileType uint32
 
 const (
 	subfileTypeNone         = 0
 	subfileTypeReducedImage = 1
-	subfileTypePage         = 2
-	subfileTypeMask         = 4
+	//subfileTypePage         = 2
+	subfileTypeMask = 4
 )
 
-type planarConfiguration uint16
+// PlanarInterleaving describes how the band data should be interleaved for tiffs
+// with more than 1 plane and with PlanarConfiguration=2
+//
+// This is an advanced usage option that does not modify the actual image data
+// but tweaks the order in which each plane's (i.e. band's) tile is written
+// in the resulting file.
+//
+// Examples for a 3-band rgb image:
+//
+//   - [[0,1,2]] will result in tiles written in the order r1,g1,b1,r2,g2,b2...rn,gn,bn. This
+//     is the default.
+//   - [0],[1],[2]] => r1,r2...rn,g1,g2....gn,b1,b2...bn
+//   - [0],[2],[1]] => r1,r2...rn,b1,b2....bn,g1,g2...gn
+//   - [0,1],[2]] => r1,g1,r2,g2...rn,gn,b1,b2....bn
+//
+// Examples for a 3-band rgb image with mask:
+//
+//   - [[0,1,2,3]] will result in tiles written in the order r1,g1,b1,m1,r2,g2,b2,m2...rn,gn,bn,mn. This
+//     is the default.
+//   - [0],[1],[2],[3]] => r1,r2...rn,g1,g2...gn,b1,b2...bn,m1,m2...mn
+//   - [0],[3],[2],[1]] => r1,r2...rn,m1,m2...m3,b1,b2...bn,g1,g2...gn
+//   - [0,1],[2],[3]] => r1,g1,r2,g2...rn,gn,b1,b2....bn,m1m2...mn
+//
+// For a n-band image, each band index from 0 to n-1 must appear exactly once
+// in the array. If the image also has a mask, the index n must also appear exactly
+// once and represents the mask position.
+type PlanarInterleaving [][]int
 
-const (
-	planarConfigurationContig   = 1
-	planarConfigurationSeparate = 2
-)
-
-type predictor uint16
-
-const (
-	predictorNone          = 1
-	predictorHorizontal    = 2
-	predictorFloatingPoint = 3
-)
-
-type sampleFormat uint16
-
-const (
-	sampleFormatUInt          = 1
-	sampleFormatInt           = 2
-	sampleFormatIEEEFP        = 3
-	sampleFormatVoid          = 4
-	sampleFormatComplexInt    = 5
-	sampleFormatComplexIEEEFP = 6
-)
-
-type extraSamples uint16
-
-const (
-	extraSamplesUnspecified = 0
-	extraSamplesAssocAlpha  = 1
-	extraSamplesUnassAlpha  = 2
-)
-
-type photometricInterpretation uint16
-
-const (
-	photometricInterpretationMinIsWhite = 0
-	photometricInterpretationMinIsBlack = 1
-	photometricInterpretationRGB        = 2
-	photometricInterpretationPalette    = 3
-	photometricInterpretationMask       = 4
-	photometricInterpretationSeparated  = 5
-	photometricInterpretationYCbCr      = 6
-	photometricInterpretationCIELab     = 8
-	photometricInterpretationICCLab     = 9
-	photometricInterpretationITULab     = 10
-	photometricInterpretationLOGL       = 32844
-	photometricInterpretationLOGLUV     = 32845
-)
-
-type ifd struct {
-	//Any field added here should also be accounted for in WriteIFD and ifd.Fieldcount
+type IFD struct {
+	//Any field added here should also be accounted for in computeStructure and writeIFD
 	SubfileType               uint32   `tiff:"field,tag=254"`
 	ImageWidth                uint64   `tiff:"field,tag=256"`
-	ImageLength               uint64   `tiff:"field,tag=257"`
+	ImageHeight               uint64   `tiff:"field,tag=257"`
 	BitsPerSample             []uint16 `tiff:"field,tag=258"`
 	Compression               uint16   `tiff:"field,tag=259"`
 	PhotometricInterpretation uint16   `tiff:"field,tag=262"`
 	DocumentName              string   `tiff:"field,tag=269"`
 	SamplesPerPixel           uint16   `tiff:"field,tag=277"`
 	PlanarConfiguration       uint16   `tiff:"field,tag=284"`
+	Software                  string   `tiff:"field,tag=305"`
 	DateTime                  string   `tiff:"field,tag=306"`
 	Predictor                 uint16   `tiff:"field,tag=317"`
 	Colormap                  []uint16 `tiff:"field,tag=320"`
 	TileWidth                 uint16   `tiff:"field,tag=322"`
-	TileLength                uint16   `tiff:"field,tag=323"`
-	OriginalTileOffsets       []uint64 `tiff:"field,tag=324"`
-	NewTileOffsets64          []uint64
-	NewTileOffsets32          []uint32
-	TempTileByteCounts        []uint64 `tiff:"field,tag=325"`
-	TileByteCounts            []uint32
+	TileHeight                uint16   `tiff:"field,tag=323"`
+	TileOffsets               []uint64 `tiff:"field,tag=324"`
+	TileByteCounts            []uint64 `tiff:"field,tag=325"`
 	ExtraSamples              []uint16 `tiff:"field,tag=338"`
 	SampleFormat              []uint16 `tiff:"field,tag=339"`
 	JPEGTables                []byte   `tiff:"field,tag=347"`
 
+	Copyright              string    `tiff:"field,tag=33432"`
 	ModelPixelScaleTag     []float64 `tiff:"field,tag=33550"`
 	ModelTiePointTag       []float64 `tiff:"field,tag=33922"`
 	ModelTransformationTag []float64 `tiff:"field,tag=34264"`
@@ -105,34 +78,110 @@ type ifd struct {
 	NoData                 string    `tiff:"field,tag=42113"`
 	LERCParams             []uint32  `tiff:"field,tag=50674"`
 	RPCs                   []float64 `tiff:"field,tag=50844"`
+	LoadTile               func(idx int, data []byte) error
 
-	overview *ifd
-	masks    []*ifd
-
-	ntags            uint64
-	ntilesx, ntilesy uint64
-	nplanes          uint64 //1 if PlanarConfiguration==1, SamplesPerPixel if PlanarConfiguration==2
-	tagsSize         uint64
-	strileSize       uint64
-	r                tiff.BReader
+	mask               *IFD   //Optional single-plane mask. Mask.Mask and Mask.Overviews must be nil
+	overviews          []*IFD //Optional overviews, sorted from largest to smallest. Overviews.Overviews must be nil.
+	newTileOffsets     []uint64
+	ntags              int
+	tagSize            int
+	strileSize         int
+	planarInterleaving PlanarInterleaving
 }
 
-/*
-func (ifd *IFD) TagCount() uint64 {
-	s, _, _ := ifd.Structure()
-	return s
+func (ifd *IFD) NTilesX() int {
+	return (int(ifd.ImageWidth) + int(ifd.TileWidth) - 1) / int(ifd.TileWidth)
 }
-func (ifd *IFD) TagsSize() uint64 {
-	_, s, _ := ifd.Structure()
-	return s
+func (ifd *IFD) NTilesY() int {
+	return (int(ifd.ImageHeight) + int(ifd.TileHeight) - 1) / int(ifd.TileHeight)
 }
-func (ifd *IFD) StrileSize() uint64 {
-	_, _, s := ifd.Structure()
-	return s
+func (ifd *IFD) NPlanes() int {
+	planeCount := 1
+	if ifd.PlanarConfiguration == 2 {
+		planeCount = int(ifd.SamplesPerPixel)
+	}
+	return planeCount
 }
-*/
+func (ifd *IFD) TileIdx(x, y, plane int) int {
+	nx, ny := ifd.NTilesX(), ifd.NTilesY()
+	return int(nx*ny*plane + y*nx + x)
+}
+func (ifd *IFD) TileFromIdx(idx int) (x, y, plane int) {
+	nx, ny := ifd.NTilesX(), ifd.NTilesY()
+	psize := nx * ny
+	plane = idx / psize
+	pidx := idx % psize
+	x = pidx % nx
+	y = pidx / nx
+	return
+}
 
-func (ifd *ifd) AddOverview(ovr *ifd) {
+func (ifd *IFD) tileLen(idx int) int {
+	return int(ifd.TileByteCounts[idx])
+}
+
+// SetPlanarInterleaving configures a non-default planar interleaving
+// for this ifd. Must be called after AddMask.
+func (ifd *IFD) SetPlanarInterleaving(pi PlanarInterleaving) error {
+	if ifd.PlanarConfiguration != 2 {
+		return fmt.Errorf("ifd is not PLANARCONFIG_SEPARATE")
+	}
+	n := int(ifd.SamplesPerPixel)
+	if ifd.mask != nil {
+		n++
+	}
+	check := make([]bool, n)
+	for _, l1 := range pi {
+		for _, l2 := range l1 {
+			if l2 < 0 || l2 >= n || check[l2] {
+				return fmt.Errorf("invalid/duplicate entry %d", l2)
+			}
+			check[l2] = true
+		}
+	}
+	for i, l2 := range check {
+		if !l2 {
+			return fmt.Errorf("missing entry %d", i)
+		}
+	}
+	//deep copy
+	for _, l1 := range pi {
+		l2 := append([]int{}, l1...)
+		ifd.planarInterleaving = append(ifd.planarInterleaving, l2)
+	}
+	return nil
+}
+
+func (ifd *IFD) setDefaultPlanarInterleaving() {
+	if ifd.planarInterleaving != nil {
+		return
+	}
+	if ifd.NPlanes() == 1 {
+		if ifd.mask != nil {
+			ifd.planarInterleaving = [][]int{{0, 1}}
+		} else {
+			ifd.planarInterleaving = [][]int{{0}}
+		}
+		return
+	}
+	n := int(ifd.SamplesPerPixel)
+	if ifd.mask != nil {
+		n++
+	}
+	ns := make([]int, n)
+	for i := range ns {
+		ns[i] = i
+	}
+	err := ifd.SetPlanarInterleaving(append([][]int{}, ns))
+	if err != nil {
+		panic(err) //bug
+	}
+}
+
+func (ifd *IFD) AddOverview(ovr *IFD) error {
+	if len(ovr.overviews) > 0 {
+		return fmt.Errorf("cannot add overview with embedded overview")
+	}
 	ovr.SubfileType = subfileTypeReducedImage
 	ovr.ModelPixelScaleTag = nil
 	ovr.ModelTiePointTag = nil
@@ -140,11 +189,53 @@ func (ifd *ifd) AddOverview(ovr *ifd) {
 	ovr.GeoAsciiParamsTag = ""
 	ovr.GeoDoubleParamsTag = nil
 	ovr.GeoKeyDirectoryTag = nil
-	ifd.overview = ovr
+	ovr.GDALMetaData = ""
+	ovr.RPCs = nil
+	idx := 0
+	for idx = range ifd.overviews {
+		if ifd.overviews[idx].ImageWidth > ovr.ImageWidth ||
+			ifd.overviews[idx].ImageHeight > ovr.ImageHeight {
+			idx++
+			continue
+		}
+		break
+	}
+	prev := ifd
+	if len(ifd.overviews) > 0 {
+		prev = ifd.overviews[len(ifd.overviews)-1]
+	}
+	if (prev.ImageWidth < ovr.ImageWidth ||
+		prev.ImageHeight < ovr.ImageHeight) ||
+		(prev.ImageWidth == ovr.ImageWidth &&
+			prev.ImageHeight == ovr.ImageHeight) {
+		return fmt.Errorf("invalid overview size")
+	}
+	if prev.SamplesPerPixel != ovr.SamplesPerPixel ||
+		len(prev.BitsPerSample) != len(ovr.BitsPerSample) {
+		return fmt.Errorf("invalid band count")
+	}
+	ifd.overviews = append(ifd.overviews, nil)
+	copy(ifd.overviews[idx+1:], ifd.overviews[idx:])
+	if ovr.mask != nil {
+		ovr.mask.SubfileType = subfileTypeMask | subfileTypeReducedImage
+	}
+	ifd.overviews[idx] = ovr
+	return nil
 }
-func (ifd *ifd) AddMask(msk *ifd) error {
-	if len(msk.masks) > 0 || msk.overview != nil {
-		return fmt.Errorf("cannot add mask with overviews or masks")
+
+// AddMask sets msk as a mask for ifd. Must not be called after SetPlanarInterleaving
+func (ifd *IFD) AddMask(msk *IFD) error {
+	if msk.mask != nil || len(msk.overviews) > 0 {
+		return fmt.Errorf("cannot add mask containing overviews or mask")
+	}
+	if len(ifd.planarInterleaving) > 0 {
+		return fmt.Errorf("AddMask must be called before calling SetPlanarInterleaving")
+	}
+	if msk.ImageWidth != ifd.ImageWidth || msk.ImageHeight != ifd.ImageHeight ||
+		msk.TileWidth != ifd.TileWidth || msk.TileHeight != ifd.TileHeight ||
+		msk.SamplesPerPixel != 1 || len(msk.BitsPerSample) != 1 ||
+		len(msk.TileByteCounts) != len(ifd.TileByteCounts)/ifd.NPlanes() {
+		return fmt.Errorf("incompatible mask structure")
 	}
 	switch ifd.SubfileType {
 	case subfileTypeNone:
@@ -152,7 +243,7 @@ func (ifd *ifd) AddMask(msk *ifd) error {
 	case subfileTypeReducedImage:
 		msk.SubfileType = subfileTypeMask | subfileTypeReducedImage
 	default:
-		return fmt.Errorf("invalid subfiledtype")
+		return fmt.Errorf("invalid parent subfiletype")
 	}
 	msk.ModelPixelScaleTag = nil
 	msk.ModelTiePointTag = nil
@@ -160,172 +251,219 @@ func (ifd *ifd) AddMask(msk *ifd) error {
 	msk.GeoAsciiParamsTag = ""
 	msk.GeoDoubleParamsTag = nil
 	msk.GeoKeyDirectoryTag = nil
-	ifd.masks = append(ifd.masks, msk)
+	msk.GDALMetaData = ""
+	msk.RPCs = nil
+	ifd.mask = msk
 	return nil
 }
 
-func (ifd *ifd) structure(bigtiff bool) (tagCount, ifdSize, strileSize, planeCount uint64) {
-	cnt := uint64(0)
-	size := uint64(16) //8 for field count + 8 for next ifd offset
-	tagSize := uint64(20)
-	planeCount = 1
-	if !bigtiff {
-		size = 6 // 2 for field count + 4 for next ifd offset
+const (
+	tByte  = 1
+	tAscii = 2
+	tShort = 3
+	tLong  = 4
+	//tRational  = 5
+	tSByte = 6
+	//tUndefined = 7
+	tSShort = 8
+	tSLong  = 9
+	//tSRational = 10
+	tFloat  = 11
+	tDouble = 12
+	tLong8  = 16
+	tSLong8 = 17
+	//tIFD8      = 18
+)
+
+func (cog *cog) computeStructure(ifd *IFD) {
+	ifd.ntags = 0
+	ifd.tagSize = 16 //8 for field count + 8 for next ifd offset
+	ifd.strileSize = 0
+	tagSize := 20
+	if !cog.bigtiff {
+		ifd.tagSize = 6 // 2 for field count + 4 for next ifd offset
 		tagSize = 12
 	}
-	strileSize = uint64(0)
-
 	if ifd.SubfileType > 0 {
-		cnt++
-		size += tagSize
+		ifd.ntags++
+		ifd.tagSize += tagSize
 	}
 	if ifd.ImageWidth > 0 {
-		cnt++
-		size += tagSize
+		ifd.ntags++
+		ifd.tagSize += tagSize
 	}
-	if ifd.ImageLength > 0 {
-		cnt++
-		size += tagSize
+	if ifd.ImageHeight > 0 {
+		ifd.ntags++
+		ifd.tagSize += tagSize
 	}
 	if len(ifd.BitsPerSample) > 0 {
-		cnt++
-		size += arrayFieldSize(ifd.BitsPerSample, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.BitsPerSample, cog.bigtiff)
 	}
 	if ifd.Compression > 0 {
-		cnt++
-		size += tagSize
+		ifd.ntags++
+		ifd.tagSize += tagSize
 	}
 
-	cnt++ /*PhotometricInterpretation*/
-	size += tagSize
+	ifd.ntags++ /*PhotometricInterpretation*/
+	ifd.tagSize += tagSize
 
 	if len(ifd.DocumentName) > 0 {
-		cnt++
-		size += arrayFieldSize(ifd.DocumentName, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.DocumentName, cog.bigtiff)
 	}
 	if ifd.SamplesPerPixel > 0 {
-		cnt++
-		size += tagSize
+		ifd.ntags++
+		ifd.tagSize += tagSize
 	}
 	if ifd.PlanarConfiguration > 0 {
-		cnt++
-		size += tagSize
+		ifd.ntags++
+		ifd.tagSize += tagSize
 	}
-	if ifd.PlanarConfiguration == 2 {
-		planeCount = uint64(ifd.SamplesPerPixel)
+	if len(ifd.Software) > 0 {
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.Software, cog.bigtiff)
 	}
 	if len(ifd.DateTime) > 0 {
-		cnt++
-		size += arrayFieldSize(ifd.DateTime, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.DateTime, cog.bigtiff)
 	}
 	if ifd.Predictor > 0 {
-		cnt++
-		size += tagSize
+		ifd.ntags++
+		ifd.tagSize += tagSize
 	}
 	if len(ifd.Colormap) > 0 {
-		cnt++
-		size += arrayFieldSize(ifd.Colormap, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.Colormap, cog.bigtiff)
 	}
 	if ifd.TileWidth > 0 {
-		cnt++
-		size += tagSize
+		ifd.ntags++
+		ifd.tagSize += tagSize
 	}
-	if ifd.TileLength > 0 {
-		cnt++
-		size += tagSize
+	if ifd.TileHeight > 0 {
+		ifd.ntags++
+		ifd.tagSize += tagSize
 	}
-	if len(ifd.NewTileOffsets32) > 0 {
-		cnt++
-		size += tagSize
-		strileSize += arrayFieldSize(ifd.NewTileOffsets32, bigtiff) - tagSize
-	} else if len(ifd.NewTileOffsets64) > 0 {
-		cnt++
-		size += tagSize
-		strileSize += arrayFieldSize(ifd.NewTileOffsets64, bigtiff) - tagSize
+	//ignore original offsets, get the number of them from the TileByteCounts
+	if len(ifd.TileByteCounts) > 0 {
+		ifd.ntags++
+		ifd.tagSize += tagSize
+		if cog.bigtiff {
+			ifd.strileSize += arrayFieldSize(ifd.TileByteCounts, cog.bigtiff) - tagSize
+		} else {
+			ifd.strileSize += arrayFieldSize32(ifd.TileByteCounts, cog.bigtiff) - tagSize
+		}
 	}
 	if len(ifd.TileByteCounts) > 0 {
-		cnt++
-		size += tagSize
-		strileSize += arrayFieldSize(ifd.TileByteCounts, bigtiff) - tagSize
+		ifd.ntags++
+		ifd.tagSize += tagSize
+		ifd.strileSize += arrayFieldSize32(ifd.TileByteCounts, cog.bigtiff) - tagSize
 	}
 	if len(ifd.ExtraSamples) > 0 {
-		cnt++
-		size += arrayFieldSize(ifd.ExtraSamples, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.ExtraSamples, cog.bigtiff)
 	}
 	if len(ifd.SampleFormat) > 0 {
-		cnt++
-		size += arrayFieldSize(ifd.SampleFormat, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.SampleFormat, cog.bigtiff)
 	}
 	if len(ifd.JPEGTables) > 0 {
-		cnt++
-		size += arrayFieldSize(ifd.JPEGTables, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.JPEGTables, cog.bigtiff)
+	}
+	if len(ifd.Copyright) > 0 {
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.Copyright, cog.bigtiff)
 	}
 	if len(ifd.ModelPixelScaleTag) > 0 {
-		cnt++
-		size += arrayFieldSize(ifd.ModelPixelScaleTag, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.ModelPixelScaleTag, cog.bigtiff)
 	}
 	if len(ifd.ModelTiePointTag) > 0 {
-		cnt++
-		size += arrayFieldSize(ifd.ModelTiePointTag, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.ModelTiePointTag, cog.bigtiff)
 	}
 	if len(ifd.ModelTransformationTag) > 0 {
-		cnt++
-		size += arrayFieldSize(ifd.ModelTransformationTag, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.ModelTransformationTag, cog.bigtiff)
 	}
 	if len(ifd.GeoKeyDirectoryTag) > 0 {
-		cnt++
-		size += arrayFieldSize(ifd.GeoKeyDirectoryTag, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.GeoKeyDirectoryTag, cog.bigtiff)
 	}
 	if len(ifd.GeoDoubleParamsTag) > 0 {
-		cnt++
-		size += arrayFieldSize(ifd.GeoDoubleParamsTag, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.GeoDoubleParamsTag, cog.bigtiff)
 	}
 	if ifd.GeoAsciiParamsTag != "" {
-		cnt++
-		size += arrayFieldSize(ifd.GeoAsciiParamsTag, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.GeoAsciiParamsTag, cog.bigtiff)
 	}
 	if ifd.GDALMetaData != "" {
-		cnt++
-		size += arrayFieldSize(ifd.GDALMetaData, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.GDALMetaData, cog.bigtiff)
 	}
 	if ifd.NoData != "" {
-		cnt++
-		size += arrayFieldSize(ifd.NoData, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.NoData, cog.bigtiff)
 	}
 	if len(ifd.LERCParams) > 0 {
-		cnt++
-		size += arrayFieldSize(ifd.LERCParams, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.LERCParams, cog.bigtiff)
 	}
 	if len(ifd.RPCs) > 0 {
-		cnt++
-		size += arrayFieldSize(ifd.RPCs, bigtiff)
+		ifd.ntags++
+		ifd.tagSize += arrayFieldSize(ifd.RPCs, cog.bigtiff)
 	}
-	return cnt, size, strileSize, planeCount
 }
 
 type tagData struct {
 	bytes.Buffer
-	Offset uint64
+	Offset int
 }
 
-func (t *tagData) NextOffset() uint64 {
-	return t.Offset + uint64(t.Buffer.Len())
+func (t *tagData) NextOffset() int {
+	return t.Offset + t.Len()
+}
+
+type Config struct {
+	//Encoding selects big or little endian tiff encoding. Default: little
+	Encoding binary.ByteOrder
+
+	//BigTIFF forces bigtiff creation. Default: false, i.e. only if needed
+	BigTIFF bool
+
+	// PlanarInterleaving for separate-plane files.
+	// Default: nil resulting in {{0,1,...n}} i.e. interleaved planes
+	PlanarInterleaving PlanarInterleaving
+
+	//WithGDALGhostArea inserts gdal specific read optimizations
+	WithGDALGhostArea bool
+}
+
+func DefaultConfig() Config {
+	return Config{
+		Encoding:          binary.LittleEndian,
+		BigTIFF:           false,
+		WithGDALGhostArea: true,
+	}
 }
 
 type cog struct {
-	enc     binary.ByteOrder
-	ifd     *ifd
-	bigtiff bool
-}
-
-func new() *cog {
-	return &cog{enc: binary.LittleEndian}
+	enc                binary.ByteOrder
+	ifd                *IFD
+	bigtiff            bool
+	withGDALGhost      bool
+	planarInterleaving PlanarInterleaving
 }
 
 func (cog *cog) writeHeader(w io.Writer) error {
-	glen := uint64(len(ghost))
-	if len(cog.ifd.masks) > 0 {
-		glen = uint64(len(ghostmask))
+	glen := uint64(0)
+	if cog.withGDALGhost {
+		glen = uint64(len(ghost))
+		if cog.ifd.mask != nil {
+			glen = uint64(len(ghostmask))
+		}
 	}
 	var err error
 	if cog.bigtiff {
@@ -354,50 +492,14 @@ func (cog *cog) writeHeader(w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if len(cog.ifd.masks) > 0 {
-		_, err = w.Write([]byte(ghostmask))
-	} else {
-		_, err = w.Write([]byte(ghost))
+	if cog.withGDALGhost {
+		if cog.ifd.mask != nil {
+			_, err = w.Write([]byte(ghostmask))
+		} else {
+			_, err = w.Write([]byte(ghost))
+		}
 	}
 	return err
-}
-
-const (
-	tByte      = 1
-	tAscii     = 2
-	tShort     = 3
-	tLong      = 4
-	tRational  = 5
-	tSByte     = 6
-	tUndefined = 7
-	tSShort    = 8
-	tSLong     = 9
-	tSRational = 10
-	tFloat     = 11
-	tDouble    = 12
-	tLong8     = 16
-	tSLong8    = 17
-	tIFD8      = 18
-)
-
-func (cog *cog) computeStructure() {
-	ifd := cog.ifd
-	for ifd != nil {
-		ifd.ntags, ifd.tagsSize, ifd.strileSize, ifd.nplanes = ifd.structure(cog.bigtiff)
-		//ifd.ntilesx = uint64(math.Ceil(float64(ifd.ImageWidth) / float64(ifd.TileWidth)))
-		//ifd.ntilesy = uint64(math.Ceil(float64(ifd.ImageLength) / float64(ifd.TileLength)))
-		ifd.ntilesx = (ifd.ImageWidth + uint64(ifd.TileWidth) - 1) / uint64(ifd.TileWidth)
-		ifd.ntilesy = (ifd.ImageLength + uint64(ifd.TileLength) - 1) / uint64(ifd.TileLength)
-
-		for _, mifd := range ifd.masks {
-			mifd.ntags, mifd.tagsSize, mifd.strileSize, mifd.nplanes = mifd.structure(cog.bigtiff)
-			//	mifd.ntilesx = uint64(math.Ceil(float64(mifd.ImageWidth) / float64(mifd.TileWidth)))
-			//	mifd.ntilesy = uint64(math.Ceil(float64(mifd.ImageLength) / float64(mifd.TileLength)))
-			mifd.ntilesx = (mifd.ImageWidth + uint64(mifd.TileWidth) - 1) / uint64(mifd.TileWidth)
-			mifd.ntilesy = (mifd.ImageLength + uint64(mifd.TileLength) - 1) / uint64(mifd.TileLength)
-		}
-		ifd = ifd.overview
-	}
 }
 
 const ghost = `GDAL_STRUCTURAL_METADATA_SIZE=000140 bytes
@@ -415,61 +517,61 @@ BLOCK_LEADER=SIZE_AS_UINT4
 BLOCK_TRAILER=LAST_4_BYTES_REPEATED
 KNOWN_INCOMPATIBLE_EDITION=NO
  MASK_INTERLEAVED_WITH_IMAGERY=YES
-`
+` //the space at the start of the last line is required to make room for changing NO to YES
 
 func (cog *cog) computeImageryOffsets() error {
-	ifd := cog.ifd
-	for ifd != nil {
-		if cog.bigtiff {
-			ifd.NewTileOffsets64 = make([]uint64, len(ifd.OriginalTileOffsets))
-			ifd.NewTileOffsets32 = nil
-		} else {
-			ifd.NewTileOffsets32 = make([]uint32, len(ifd.OriginalTileOffsets))
-			ifd.NewTileOffsets64 = nil
-		}
-		//mifd.NewTileOffsets = mifd.OriginalTileOffsets
-		for _, sc := range ifd.masks {
-			if cog.bigtiff {
-				sc.NewTileOffsets64 = make([]uint64, len(sc.OriginalTileOffsets))
-				sc.NewTileOffsets32 = nil
-			} else {
-				sc.NewTileOffsets32 = make([]uint32, len(sc.OriginalTileOffsets))
-				sc.NewTileOffsets64 = nil
-			}
-			//sc.NewTileOffsets = sc.OriginalTileOffsets
-		}
-		ifd = ifd.overview
+	nplanes := cog.ifd.NPlanes()
+	haveMask := false
+	cog.computeStructure(cog.ifd)
+	if cog.ifd.mask != nil {
+		cog.computeStructure(cog.ifd.mask)
+		haveMask = true
 	}
-	cog.computeStructure()
+	for _, oifd := range cog.ifd.overviews {
+		if oifd.NPlanes() != nplanes {
+			return fmt.Errorf("inconsistent band count")
+		}
+		iHaveMask := oifd.mask != nil
+		if iHaveMask != haveMask {
+			return fmt.Errorf("inconsistent mask count")
+		}
+		cog.computeStructure(oifd)
+		if oifd.mask != nil {
+			cog.computeStructure(oifd.mask)
+		}
+	}
 
 	//offset to start of image data
 	dataOffset := uint64(16)
 	if !cog.bigtiff {
 		dataOffset = 8
 	}
-	if len(cog.ifd.masks) > 0 {
-		dataOffset += uint64(len(ghostmask)) + 4
-	} else {
-		dataOffset += uint64(len(ghost)) + 4
-	}
-
-	ifd = cog.ifd
-	for ifd != nil {
-		dataOffset += ifd.strileSize + ifd.tagsSize
-		for _, sc := range ifd.masks {
-			dataOffset += sc.strileSize + sc.tagsSize
+	if cog.withGDALGhost {
+		if cog.ifd.mask != nil {
+			dataOffset += uint64(len(ghostmask) + 4)
+		} else {
+			dataOffset += uint64(len(ghost) + 4)
 		}
-		ifd = ifd.overview
 	}
 
-	datas := cog.dataInterlacing()
-	tiles := datas.tiles()
+	dataOffset += uint64(cog.ifd.strileSize + cog.ifd.tagSize)
+	if cog.ifd.mask != nil {
+		dataOffset += uint64(cog.ifd.mask.strileSize + cog.ifd.mask.tagSize)
+	}
+	for _, ifd := range cog.ifd.overviews {
+		dataOffset += uint64(ifd.strileSize + ifd.tagSize)
+		if ifd.mask != nil {
+			dataOffset += uint64(ifd.mask.strileSize + ifd.mask.tagSize)
+		}
+	}
+
+	datas := cog.ifdInterlacing()
+	tiles := cog.tiles(datas)
 	for tile := range tiles {
-		tileidx := (tile.x+tile.y*tile.ifd.ntilesx)*tile.ifd.nplanes + tile.plane
-		cnt := uint64(tile.ifd.TileByteCounts[tileidx])
-		if cnt > 0 {
+		tileidx := tile.ifd.TileIdx(tile.x, tile.y, tile.plane)
+		if tile.ifd.tileLen(tileidx) > 0 {
 			if cog.bigtiff {
-				tile.ifd.NewTileOffsets64[tileidx] = dataOffset
+				tile.ifd.newTileOffsets[tileidx] = dataOffset
 			} else {
 				if dataOffset > uint64(^uint32(0)) { //^uint32(0) is max uint32
 					//rerun with bigtiff support
@@ -481,23 +583,60 @@ func (cog *cog) computeImageryOffsets() error {
 					cog.bigtiff = true
 					return cog.computeImageryOffsets()
 				}
-				tile.ifd.NewTileOffsets32[tileidx] = uint32(dataOffset)
+				tile.ifd.newTileOffsets[tileidx] = dataOffset
 			}
-			dataOffset += uint64(tile.ifd.TileByteCounts[tileidx]) + 8
+			dataOffset += tile.ifd.TileByteCounts[tileidx]
+			if cog.withGDALGhost {
+				dataOffset += 8
+			}
 		} else {
-			if cog.bigtiff {
-				tile.ifd.NewTileOffsets64[tileidx] = 0
-			} else {
-				tile.ifd.NewTileOffsets32[tileidx] = 0
-			}
+			tile.ifd.newTileOffsets[tileidx] = 0
 		}
 	}
-
 	return nil
 }
 
-func (cog *cog) write(out io.Writer) error {
-
+func (cog *cog) rewriteIFDHeader(out io.Writer) error {
+	havePlanar := cog.ifd.NPlanes() > 1
+	for _, oifd := range cog.ifd.overviews {
+		if oifd.NPlanes() > 1 {
+			havePlanar = true
+		}
+	}
+	if havePlanar {
+		cog.withGDALGhost = false
+	}
+	if len(cog.planarInterleaving) == 0 {
+		//set all unset to default
+		cog.ifd.setDefaultPlanarInterleaving()
+		for _, ovr := range cog.ifd.overviews {
+			ovr.setDefaultPlanarInterleaving()
+		}
+	} else {
+		//set all unset to configured value
+		if len(cog.ifd.planarInterleaving) == 0 { //don't override existing
+			if err := cog.ifd.SetPlanarInterleaving(cog.planarInterleaving); err != nil {
+				return fmt.Errorf("invalid planar interleaving: %w", err)
+			}
+		}
+		for o, ovr := range cog.ifd.overviews {
+			if len(ovr.planarInterleaving) == 0 { //don't override existing
+				if err := ovr.SetPlanarInterleaving(cog.planarInterleaving); err != nil {
+					return fmt.Errorf("invalid planar interleaving for overview %d: %w", o, err)
+				}
+			}
+		}
+	}
+	cog.ifd.newTileOffsets = make([]uint64, len(cog.ifd.TileByteCounts))
+	if cog.ifd.mask != nil {
+		cog.ifd.mask.newTileOffsets = make([]uint64, len(cog.ifd.mask.TileByteCounts))
+	}
+	for _, oifd := range cog.ifd.overviews {
+		oifd.newTileOffsets = make([]uint64, len(oifd.TileByteCounts))
+		if oifd.mask != nil {
+			oifd.mask.newTileOffsets = make([]uint64, len(oifd.mask.TileByteCounts))
+		}
+	}
 	err := cog.computeImageryOffsets()
 	if err != nil {
 		return err
@@ -509,90 +648,146 @@ func (cog *cog) write(out io.Writer) error {
 	if !cog.bigtiff {
 		strileData.Offset = 8
 	}
-	if len(cog.ifd.masks) > 0 {
-		strileData.Offset += uint64(len(ghostmask))
-	} else {
-		strileData.Offset += uint64(len(ghost))
-	}
-
-	ifd := cog.ifd
-	for ifd != nil {
-		strileData.Offset += ifd.tagsSize
-		for _, sc := range ifd.masks {
-			strileData.Offset += sc.tagsSize
+	if cog.withGDALGhost {
+		if cog.ifd.mask != nil {
+			strileData.Offset += len(ghostmask)
+		} else {
+			strileData.Offset += len(ghost)
 		}
-		ifd = ifd.overview
 	}
 
-	glen := uint64(len(ghost))
-	if len(cog.ifd.masks) > 0 {
-		glen = uint64(len(ghostmask))
+	strileData.Offset += cog.ifd.tagSize
+	if cog.ifd.mask != nil {
+		strileData.Offset += cog.ifd.mask.tagSize
 	}
-	cog.writeHeader(out)
+	for _, oifd := range cog.ifd.overviews {
+		strileData.Offset += oifd.tagSize
+		if oifd.mask != nil {
+			strileData.Offset += oifd.mask.tagSize
+		}
+	}
 
-	ifd = cog.ifd
-	off := uint64(16 + glen)
+	if err := cog.writeHeader(out); err != nil {
+		return err
+	}
+
+	off := 16
 	if !cog.bigtiff {
-		off = 8 + glen
+		off = 8
 	}
-	for ifd != nil {
-		nmasks := len(ifd.masks)
-		err := cog.writeIFD(out, ifd, off, strileData, nmasks > 0 || ifd.overview != nil)
-		if err != nil {
-			return fmt.Errorf("write ifd: %w", err)
+	if cog.withGDALGhost {
+		if cog.ifd.mask != nil {
+			off += len(ghostmask)
+		} else {
+			off += len(ghost)
 		}
-		off += ifd.tagsSize
-		for i, si := range ifd.masks {
-			err := cog.writeIFD(out, si, off, strileData, i != nmasks-1 || ifd.overview != nil)
+	}
+
+	err = cog.writeIFD(out, cog.ifd, off, strileData, cog.ifd.mask != nil || len(cog.ifd.overviews) > 0)
+	if err != nil {
+		return fmt.Errorf("write main ifd: %w", err)
+	}
+	off += cog.ifd.tagSize
+	if cog.ifd.mask != nil {
+		err = cog.writeIFD(out, cog.ifd.mask, off, strileData, len(cog.ifd.overviews) > 0)
+		if err != nil {
+			return fmt.Errorf("write mask: %w", err)
+		}
+		off += cog.ifd.mask.tagSize
+	}
+
+	for i, oifd := range cog.ifd.overviews {
+		err = cog.writeIFD(out, oifd, off, strileData,
+			oifd.mask != nil || i != len(cog.ifd.overviews)-1)
+		if err != nil {
+			return fmt.Errorf("write overview ifd %d: %w", i, err)
+		}
+		off += oifd.tagSize
+		if oifd.mask != nil {
+			err := cog.writeIFD(out, oifd.mask, off, strileData, i != len(cog.ifd.overviews)-1)
 			if err != nil {
 				return fmt.Errorf("write ifd: %w", err)
 			}
-			off += si.tagsSize
+			off += oifd.mask.tagSize
 		}
-		ifd = ifd.overview
 	}
 
 	_, err = out.Write(strileData.Bytes())
 	if err != nil {
 		return fmt.Errorf("write strile pointers: %w", err)
 	}
+	return nil
+}
 
-	datas := cog.dataInterlacing()
-	tiles := datas.tiles()
+func (cog *cog) writeTileData(out io.Writer) error {
+	datas := cog.ifdInterlacing()
+	tiles := cog.tiles(datas)
 	data := []byte{}
 	for tile := range tiles {
-		idx := (tile.x+tile.y*tile.ifd.ntilesx)*tile.ifd.nplanes + tile.plane
-		bc := tile.ifd.TileByteCounts[idx]
+		idx := tile.ifd.TileIdx(tile.x, tile.y, tile.plane)
+		bc := tile.ifd.tileLen(idx)
 		if bc > 0 {
-			_, err := tile.ifd.r.Seek(int64(tile.ifd.OriginalTileOffsets[idx]), io.SeekStart)
-			if err != nil {
-				return fmt.Errorf("seek to %d: %w", tile.ifd.OriginalTileOffsets[idx], err)
-			}
-			if uint32(len(data)) < bc+8 {
+			if len(data) < bc+8 {
 				data = make([]byte, (bc+8)*2)
 			}
-			binary.LittleEndian.PutUint32(data, bc) //header ghost: tile size
-			_, err = tile.ifd.r.Read(data[4 : 4+bc])
+			binary.LittleEndian.PutUint32(data, uint32(bc)) //header ghost: tile size
+			err := tile.Data(data[4 : 4+bc])
 			if err != nil {
-				return fmt.Errorf("read %d from %d: %w",
-					bc, tile.ifd.OriginalTileOffsets[idx], err)
+				return fmt.Errorf("tile.data: %w", err)
 			}
 			copy(data[4+bc:8+bc], data[bc:4+bc]) //trailer ghost: repeat last 4 bytes
-			_, err = out.Write(data[0 : bc+8])
+			if cog.withGDALGhost {
+				_, err = out.Write(data[0 : bc+8])
+			} else {
+				_, err = out.Write(data[4 : bc+4])
+			}
 			if err != nil {
 				return fmt.Errorf("write %d: %w", bc, err)
 			}
 		}
 	}
-
-	return err
+	return nil
+}
+func (cfg Config) RewriteIFDHeader(ifd *IFD, out io.Writer) error {
+	cog := &cog{
+		enc:                cfg.Encoding,
+		bigtiff:            cfg.BigTIFF,
+		withGDALGhost:      cfg.WithGDALGhostArea,
+		planarInterleaving: cfg.PlanarInterleaving,
+		ifd:                ifd,
+	}
+	if err := cog.rewriteIFDHeader(out); err != nil {
+		return err
+	}
+	return nil
 }
 
-func (cog *cog) writeIFD(w io.Writer, ifd *ifd, offset uint64, striledata *tagData, next bool) error {
+func (cfg Config) RewriteIFDTreeSplitted(ifd *IFD, headerOut, tileDataOut io.Writer) error {
+	cog := &cog{
+		enc:                cfg.Encoding,
+		bigtiff:            cfg.BigTIFF,
+		withGDALGhost:      cfg.WithGDALGhostArea,
+		planarInterleaving: cfg.PlanarInterleaving,
+		ifd:                ifd,
+	}
+	if err := cog.rewriteIFDHeader(headerOut); err != nil {
+		return err
+	}
+	if err := cog.writeTileData(tileDataOut); err != nil {
+		return err
+	}
+	return nil
+}
 
-	nextOff := uint64(0)
+func (cfg Config) RewriteIFDTree(ifd *IFD, out io.Writer) error {
+	return cfg.RewriteIFDTreeSplitted(ifd, out, out)
+}
+
+func (cog *cog) writeIFD(w io.Writer, ifd *IFD, offset int, striledata *tagData, next bool) error {
+
+	nextOff := 0
 	if next {
-		nextOff = offset + ifd.tagsSize
+		nextOff = offset + ifd.tagSize
 	}
 	var err error
 	// Make space for "pointer area" containing IFD entry data
@@ -605,7 +800,7 @@ func (cog *cog) writeIFD(w io.Writer, ifd *ifd, offset uint64, striledata *tagDa
 	}
 
 	if cog.bigtiff {
-		err = binary.Write(w, cog.enc, ifd.ntags)
+		err = binary.Write(w, cog.enc, uint64(ifd.ntags))
 	} else {
 		err = binary.Write(w, cog.enc, uint16(ifd.ntags))
 	}
@@ -625,8 +820,8 @@ func (cog *cog) writeIFD(w io.Writer, ifd *ifd, offset uint64, striledata *tagDa
 			panic(err)
 		}
 	}
-	if ifd.ImageLength > 0 {
-		err := cog.writeField(w, 257, uint32(ifd.ImageLength))
+	if ifd.ImageHeight > 0 {
+		err := cog.writeField(w, 257, uint32(ifd.ImageHeight))
 		if err != nil {
 			panic(err)
 		}
@@ -675,6 +870,14 @@ func (cog *cog) writeIFD(w io.Writer, ifd *ifd, offset uint64, striledata *tagDa
 		}
 	}
 
+	//Software                  string   `tiff:"field,tag=305"`
+	if len(ifd.Software) > 0 {
+		err := cog.writeArray(w, 305, ifd.Software, overflow)
+		if err != nil {
+			panic(err)
+		}
+	}
+
 	//DateTime                  string   `tiff:"field,tag=306"`
 	if len(ifd.DateTime) > 0 {
 		err := cog.writeArray(w, 306, ifd.DateTime, overflow)
@@ -708,29 +911,29 @@ func (cog *cog) writeIFD(w io.Writer, ifd *ifd, offset uint64, striledata *tagDa
 	}
 
 	//TileHeight                uint16   `tiff:"field,tag=323"`
-	if ifd.TileLength > 0 {
-		err := cog.writeField(w, 323, ifd.TileLength)
+	if ifd.TileHeight > 0 {
+		err := cog.writeField(w, 323, ifd.TileHeight)
 		if err != nil {
 			panic(err)
 		}
 	}
 
 	//TileOffsets               []uint64 `tiff:"field,tag=324"`
-	if len(ifd.NewTileOffsets32) > 0 {
-		err := cog.writeArray(w, 324, ifd.NewTileOffsets32, striledata)
-		if err != nil {
-			panic(err)
+	if len(ifd.newTileOffsets) > 0 {
+		var err error
+		if cog.bigtiff {
+			err = cog.writeArray(w, 324, ifd.newTileOffsets, striledata)
+		} else {
+			err = cog.writeArray32(w, 324, ifd.newTileOffsets, striledata)
 		}
-	} else {
-		err := cog.writeArray(w, 324, ifd.NewTileOffsets64, striledata)
 		if err != nil {
 			panic(err)
 		}
 	}
 
-	//TileByteCounts            []uint32 `tiff:"field,tag=325"`
+	//TileByteCounts            []uint64 `tiff:"field,tag=325"`
 	if len(ifd.TileByteCounts) > 0 {
-		err := cog.writeArray(w, 325, ifd.TileByteCounts, striledata)
+		err := cog.writeArray32(w, 325, ifd.TileByteCounts, striledata)
 		if err != nil {
 			panic(err)
 		}
@@ -755,6 +958,14 @@ func (cog *cog) writeIFD(w io.Writer, ifd *ifd, offset uint64, striledata *tagDa
 	//JPEGTables                []byte   `tiff:"field,tag=347"`
 	if len(ifd.JPEGTables) > 0 {
 		err := cog.writeArray(w, 347, ifd.JPEGTables, overflow)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	//Copyright                  string   `tiff:"field,tag=33432"`
+	if len(ifd.Copyright) > 0 {
+		err := cog.writeArray(w, 33432, ifd.Copyright, overflow)
 		if err != nil {
 			panic(err)
 		}
@@ -835,7 +1046,7 @@ func (cog *cog) writeIFD(w io.Writer, ifd *ifd, offset uint64, striledata *tagDa
 	}
 
 	if cog.bigtiff {
-		err = binary.Write(w, cog.enc, nextOff)
+		err = binary.Write(w, cog.enc, uint64(nextOff))
 	} else {
 		err = binary.Write(w, cog.enc, uint32(nextOff))
 	}
@@ -850,53 +1061,108 @@ func (cog *cog) writeIFD(w io.Writer, ifd *ifd, offset uint64, striledata *tagDa
 }
 
 type tile struct {
-	ifd   *ifd
-	x, y  uint64
-	plane uint64
+	ifd          *IFD
+	x, y         int
+	plane        int
+	preloading   chan struct{}
+	preloaded    []byte
+	preloadError error
 }
 
-type datas [][]*ifd
-
-func (cog *cog) dataInterlacing() datas {
-	//count overviews
-	ifdo := cog.ifd
-	count := 0
-	for ifdo != nil {
-		count++
-		ifdo = ifdo.overview
+func (t *tile) Data(data []byte) error {
+	if t.preloading != nil {
+		<-t.preloading
 	}
-	ret := make([][]*ifd, count)
-	ifdo = cog.ifd
-	for idx := count - 1; idx >= 0; idx-- {
-		ret[idx] = append(ret[idx], ifdo)
-		ret[idx] = append(ret[idx], ifdo.masks...)
-		ifdo = ifdo.overview
+	idx := t.ifd.TileIdx(t.x, t.y, t.plane)
+	{ //safety net
+		tl := t.ifd.tileLen(idx)
+		if len(data) != int(tl) {
+			panic("wrong buffer size")
+		}
+	}
+	if t.preloading != nil {
+		if t.preloadError != nil {
+			return t.preloadError
+		}
+		if len(t.preloaded) != len(data) {
+			return fmt.Errorf("preloaded buffer len=%d, expecting %d", len(t.preloaded), len(data))
+		}
+		copy(data, t.preloaded)
+		return nil
+	}
+	if len(data) > 0 {
+		return t.ifd.LoadTile(idx, data)
+	}
+	return nil
+}
+
+type entry struct { //todo: rename this
+	ifd  *IFD
+	mask *IFD
+}
+
+type entries []entry //todo: rename this
+
+func (cog *cog) ifdInterlacing() entries {
+	//count overviews
+	ret := make([]entry, 1+len(cog.ifd.overviews))
+	havemask := cog.ifd.mask != nil
+	if havemask {
+		ret[len(cog.ifd.overviews)] = entry{cog.ifd, cog.ifd.mask}
+	} else {
+		ret[len(cog.ifd.overviews)] = entry{cog.ifd, nil}
+	}
+	for idx := 0; idx < len(cog.ifd.overviews); idx++ {
+		oifd := cog.ifd.overviews[len(cog.ifd.overviews)-1-idx]
+		if havemask {
+			ret[idx] = entry{oifd, oifd.mask}
+		} else {
+			ret[idx] = entry{oifd, nil}
+		}
 	}
 	return ret
 }
 
-func (d datas) tiles() chan tile {
-	ch := make(chan tile)
+func (cog *cog) tiles(entries entries) chan *tile {
+	ch := make(chan *tile)
 	go func() {
 		defer close(ch)
-
-		for _, ovr := range d {
-			for y := uint64(0); y < ovr[0].ntilesy; y++ {
-				for x := uint64(0); x < ovr[0].ntilesx; x++ {
-					for _, ifd := range ovr {
-						for p := uint64(0); p < ifd.nplanes; p++ {
-							ch <- tile{
-								ifd:   ifd,
-								plane: p,
-								x:     x,
-								y:     y,
+		for _, entry := range entries {
+			maskIdx := -1
+			if entry.mask != nil {
+				if entry.ifd.PlanarConfiguration == 2 {
+					maskIdx = int(entry.ifd.SamplesPerPixel)
+				} else {
+					maskIdx = 1
+				}
+			}
+			ntx, nty := entry.ifd.NTilesX(), entry.ifd.NTilesY()
+			for _, l1 := range entry.ifd.planarInterleaving {
+				for y := 0; y < nty; y++ {
+					for x := 0; x < ntx; x++ {
+						for _, p := range l1 {
+							var tt *tile
+							if p != maskIdx {
+								tt = &tile{
+									ifd:   entry.ifd,
+									plane: p,
+									x:     x,
+									y:     y,
+								}
+							} else {
+								tt = &tile{
+									ifd:   entry.mask,
+									plane: 0,
+									x:     x,
+									y:     y,
+								}
 							}
+							ch <- tt
 						}
 					}
 				}
 			}
 		}
-
 	}()
 	return ch
 }
