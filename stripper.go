@@ -8,6 +8,17 @@ import (
 	"github.com/google/tiff"
 )
 
+// A Stripper holds the information to inform how to split an image and its
+// overviews into strips of roughly similar sizes, allowing these strips to be
+// produced outside of the cogger library itself, and ensuring that the internal
+// tiling of these individaul strips will be compatible with a cog
+// reconstruction.
+//
+// The usual workflow is to create a Stripper matching the input image's
+// dimensions, rough size of each strip to be processed, and output cog
+// parameters (namely internal tiling size)
+//
+// For a full example, see the cmd/pcogger utility
 type Stripper struct {
 	targetStripPixelCount                     int
 	minOverviewSize                           int
@@ -32,6 +43,7 @@ func (s Stripper) Size() (int, int) {
 
 type StripperOption func(t *Stripper) error
 
+// InternalTileSize sets the internal tiling size of the TIF file
 func InternalTileSize(width, height int) StripperOption {
 	return func(t *Stripper) error {
 		if width <= 0 || height <= 0 {
@@ -46,6 +58,9 @@ func (s Stripper) InternalTileSize() (int, int) {
 	return s.internalTilingWidth, s.internalTilingHeight
 }
 
+// MinOverviewSize sets the minimal overview size of the TIF file. i.e.
+// overviews will stop being added once one of width or height has reached this
+// value, even if the other dimension is still over the internal tile size
 func MinOverviewSize(size int) StripperOption {
 	return func(t *Stripper) error {
 		if size <= 0 {
@@ -60,6 +75,9 @@ func (s Stripper) MinOverviewSize() int {
 	return s.minOverviewSize
 }
 
+// OverviewCount forces the number of overviews to create. By default we create
+// as many as needed in order to reach a size that fits into a single internal
+// TIF tile
 func OverviewCount(count int) StripperOption {
 	return func(t *Stripper) error {
 		if count < 0 {
@@ -74,6 +92,9 @@ func (s Stripper) OverviewCount() int {
 	return s.overviewCount
 }
 
+// Approximate number of pixels to use for a single strip. i.e. a single subjob
+// will have to process approximately this number of pixels, whatever the size
+// of the whole image. Will be adjusted to fit the internal tiling size
 func TargetPixelCount(count int) StripperOption {
 	return func(t *Stripper) error {
 		if count < 0 {
@@ -106,6 +127,11 @@ func (s Stripper) FullresStripHeightMultiple() int {
 	return s.fullresStripHeightMultiple
 }
 
+// NewStripper create a stripper for an image of given width and height.
+// Default options are:
+// - 64 MPixel strips
+// - 256x256 internal tiling
+// - overviews down to just under 256 pixels
 func NewStripper(width, height int, options ...StripperOption) (Stripper, error) {
 	var err error
 	t := Stripper{
@@ -137,9 +163,13 @@ func NewStripper(width, height int, options ...StripperOption) (Stripper, error)
 // and TopLeftY properties are informative only and are not needed in order to
 // process an image with this API.
 //
-// In order to populate the pixels of a given strip, data must be copied or downsampled
-// from a window of the source Image. The source window is defined by it's upper left corner
-// (SrcTopLeftX and SrcTopLeftY) and size (SrcWidth and SrcHeight)
+// In order to populate the pixels of a given strip, data must be copied or
+// downsampled from a window of a source Image. Depending on the context, the
+// source can either be the original image when creating the full-resolution
+// IFD, or the full-resolution IFD when creating the first overview, or the
+// previous overview when creating another overview.  The source window is
+// defined by it's upper left corner (SrcTopLeftX and SrcTopLeftY) and size
+// (SrcWidth and SrcHeight)
 //
 // In gdal lingo, this strip can be calculated by running
 //
@@ -151,8 +181,9 @@ type Strip struct {
 	SrcWidth, SrcHeight      float64
 }
 
-// An Image is a Width*Height rectangle of pixels, and its decompostion into Strips
-// that can be processed concurrently
+// An Image is a Width*Height rectangle of pixels (i.e. there are no overviews
+// at this level) and its decompostion into Strips that can be processed
+// concurrently
 type Image struct {
 	internalTilingWidth, internalTilingHeight int
 	Width, Height                             int
@@ -173,6 +204,13 @@ func (t Stripper) Pyramid() Pyramid {
 	return t.pyr
 }
 
+// A DAG can be used further optimize parrallel strip computing, by explicitely
+// referencing which parent strips are needed to be used to downsample the given
+// strip of an overview.
+// For advanced usage; it is simpler to process all images of a pyramid level in
+// parallel before moving down to the next level
+type Dag [][]Node
+
 // A Node represents a single Strip in the Dag
 type Node struct {
 	// Parents are the indexes of the parent strips that will be used to compose the current strip
@@ -181,8 +219,7 @@ type Node struct {
 	ParentOffset int
 }
 
-type Dag [][]Node
-
+// Compute the DAG for a Pyramid.
 func (pyr Pyramid) DAG() Dag {
 	ret := make(Dag, len(pyr))
 
@@ -352,6 +389,13 @@ func (img Image) tileStripIdx(x, y int) (strip int, stripx, stripy int) {
 	return
 }
 
+// AssembleStrips takes the strips that have been created by following the corresponding
+// Pyramid structure. The ordering of the strip readers in the srcStrips double array
+// must be the same as that of the pyramid structure.
+//
+// This create a "virtual" IFD tree that has all the caracteristics of final COG
+// file, with the tile loading functions that will reference which tile from
+// which strip to use.
 func (t Stripper) AssembleStrips(srcStrips [][]tiff.ReadAtReadSeeker) (*IFD, error) {
 	pyr := t.Pyramid()
 	mainIFD, err := pyr[0].assembleLevelStrips(srcStrips[0])

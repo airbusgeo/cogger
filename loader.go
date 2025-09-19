@@ -100,7 +100,7 @@ func (cfg Config) RewriteSplitted(headerOut, dataOut io.Writer, readers ...tiff.
 
 	err = cfg.RewriteIFDTreeSplitted(ifds[0], headerOut, dataOut)
 	if err != nil {
-		return fmt.Errorf("mucog write: %w", err)
+		return fmt.Errorf("cogger rewrite: %w", err)
 	}
 	return nil
 }

@@ -38,9 +38,9 @@ func process(input string, output string, numworkers int, creationOptions []stri
 	str := inds.Structure()
 
 	opts := []cogger.StripperOption{
-		cogger.InternalTileSize(256, 256),
+		cogger.InternalTileSize(256, 256), //this must match BLOCKXSIZE/BLOCKYSIZE from above !
 	}
-	if str.BlockSizeY > 256 && str.BlockSizeY%256 > 0 {
+	if str.BlockSizeY > 256 && str.BlockSizeY%256 > 0 { //align to the blocksize of the source dataset, if possible
 		opts = append(opts, cogger.FullresStripHeightMultiple(str.BlockSizeY))
 	}
 
@@ -55,9 +55,11 @@ func process(input string, output string, numworkers int, creationOptions []stri
 	prefix := uuid.Must(uuid.NewRandom()).String()
 
 	for l := range pyramid {
+		// if l==0 : read for input dataset
 		infile := input
 		if l > 0 {
-			// if we are in an overview level, optionally build a vrt file making a single gdal image from the all the strips created at the previous level
+			// we are creating an overview, i.e. we are now referencing strips that have been created at the previous iteration
+			// we optionally build a vrt file making a single gdal image from the all the strips created at the previous level
 			if len(vrt_accum) > 1 {
 				infile = fmt.Sprintf("l%s_%d.vrt", prefix, l-1)
 				vds, err := godal.BuildVRT(infile, vrt_accum, nil)
@@ -69,6 +71,7 @@ func process(input string, output string, numworkers int, creationOptions []stri
 				}
 				defer os.Remove(infile) //nolint:errcheck
 			} else {
+				// previous iteration created a single strip, no use to create a vrt
 				infile = vrt_accum[0]
 			}
 			vrt_accum = []string{}
@@ -85,6 +88,7 @@ func process(input string, output string, numworkers int, creationOptions []stri
 				"-srcwin", "0", fmt.Sprintf("%g", strip.SrcTopLeftY), fmt.Sprintf("%g", strip.SrcWidth), fmt.Sprintf("%g", strip.SrcHeight),
 			}
 			if l > 0 {
+				//we are in an overview level, so we must specify output size (which will be input size divided by 2) and resampling method
 				trnopts = append(trnopts, "-outsize", fmt.Sprintf("%d", strip.Width), fmt.Sprintf("%d", strip.Height), "-r", "average")
 			}
 			p.Go(func() error {
@@ -100,7 +104,7 @@ func process(input string, output string, numworkers int, creationOptions []stri
 				if err := outds.Close(); err != nil {
 					return fmt.Errorf("close %s: %w", stripname, err)
 				}
-				fmt.Println("created", stripname)
+				//fmt.Println("created", stripname)
 				return nil
 			})
 		}
@@ -110,6 +114,7 @@ func process(input string, output string, numworkers int, creationOptions []stri
 		srcStrips = append(srcStrips, lStrips)
 	}
 
+	// get readers on all strips
 	readers := [][]tiff.ReadAtReadSeeker{}
 	for l := range srcStrips {
 		readers = append(readers, []tiff.ReadAtReadSeeker{})
